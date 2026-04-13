@@ -1,17 +1,8 @@
 @import "tailwindcss";
 
-:root {
-  --strive-navy: #0a1628;
-  --strive-blue: #1e3a8a;
-  --strive-accent: #3b82f6;
-  --strive-green: #10b981;
-  --strive-red: #ef4444;
-  --strive-gold: #f59e0b;
-}
-
 @theme inline {
   --color-background: #ffffff;
-  --color-foreground: #0a1628;
+  --color-foreground: #1a1f36;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -21,89 +12,29 @@
 }
 
 body {
-  background: #0a1628;
-  color: #e2e8f0;
-  font-family: Arial, Helvetica, sans-serif;
+  background: #ffffff;
+  color: #1a1f36;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
 }
 
-/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0a1628;
+  background: #f1f5f9;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e3a8a;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
-/* Vitals monitor animation */
-@keyframes pulse-line {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+/* Smooth slide transitions */
+section {
+  animation: fadeIn 0.3s ease-out;
 }
 
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes count-up {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* ECG line animation */
-@keyframes ecg-sweep {
-  0% { stroke-dashoffset: 1000; }
-  100% { stroke-dashoffset: 0; }
-}
-
-/* Glowing pulse */
-@keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
-  50% { box-shadow: 0 0 40px rgba(59, 130, 246, 0.6); }
-}
-
-.glow-pulse {
-  animation: glow-pulse 2s ease-in-out infinite;
-}
-
-/* Gradient text */
-.gradient-text {
-  background: linear-gradient(135deg, #3b82f6, #10b981);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* Section divider */
-.section-divider {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, #1e3a8a, transparent);
-}
-
-/* Stat card hover */
-.stat-card {
-  transition: all 0.3s ease;
-}
-.stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
-}
-
-/* Presenter mode indicator */
-.presenter-notes {
-  display: none;
-}
-body.presenter-mode .presenter-notes {
-  display: block;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
