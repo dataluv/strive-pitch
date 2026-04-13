@@ -543,6 +543,38 @@ function DrugInteractionPanel({ patient }: { patient: Patient; patients: Patient
    MAIN AGENT COMPONENT
    ============================================================ */
 
+/* ============================================================
+   CONSENT PERMISSIONS (shared logic)
+   ============================================================ */
+
+interface ConsentPermission {
+  id: string;
+  label: string;
+  description: string;
+  category: "patient-data" | "clinical" | "ai-model" | "audit";
+  required: boolean;
+}
+
+const CONSENT_PERMISSIONS: ConsentPermission[] = [
+  { id: "vitals-access", label: "Vital Signs Access", description: "Read real-time and historical vital signs (MAP, HR, SpO2, temperature)", category: "patient-data", required: true },
+  { id: "labs-access", label: "Laboratory Results", description: "Access lab panels including CBC, BMP, coagulation, lactate", category: "patient-data", required: true },
+  { id: "medications-access", label: "Medication Records", description: "View active medications, antibiotic regimen, and vasopressor infusions", category: "patient-data", required: true },
+  { id: "demographics", label: "Patient Demographics", description: "Access age, sex, BMI, comorbidities, and admission history", category: "patient-data", required: true },
+  { id: "rl-recommendation", label: "RL Treatment Recommendation", description: "Generate RL-based treatment recommendations from on-premise model", category: "ai-model", required: true },
+  { id: "cohort-comparison", label: "Cohort Comparison", description: "Compare against de-identified similar patient trajectories", category: "ai-model", required: false },
+  { id: "risk-scoring", label: "Risk Score Computation", description: "Compute real-time mortality risk and SOFA trajectory", category: "clinical", required: false },
+  { id: "audit-log", label: "Audit Trail Logging", description: "Log all queries and recommendations to immutable audit trail", category: "audit", required: true },
+  { id: "hipaa-authorization", label: "HIPAA Authorization", description: "Confirm HIPAA authorization for accessing Protected Health Information", category: "audit", required: true },
+  { id: "minimum-necessary", label: "Minimum Necessary Standard", description: "Verify request meets HIPAA minimum necessary standard for PHI access", category: "audit", required: true },
+];
+
+const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
+  "patient-data": { label: "Patient Data", color: "blue" },
+  clinical: { label: "Clinical Analysis", color: "purple" },
+  "ai-model": { label: "AI/RL Model", color: "green" },
+  audit: { label: "Compliance & Audit", color: "amber" },
+};
+
 export default function StriveAgent() {
   const patients = useMemo(() => getAllPatients(), []);
   const [selectedPatientIdx, setSelectedPatientIdx] = useState(0);
@@ -553,6 +585,13 @@ export default function StriveAgent() {
   const [showPatientPicker, setShowPatientPicker] = useState(false);
   const [patientSearch, setPatientSearch] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Consent state
+  const [consentGranted, setConsentGranted] = useState<Record<string, boolean>>({});
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [pendingQuery, setPendingQuery] = useState<{ text: string; attachments: Attachment[] } | null>(null);
+
+  const allConsented = CONSENT_PERMISSIONS.every(p => consentGranted[p.id]);
+  const requiredConsented = CONSENT_PERMISSIONS.filter(p => p.required).every(p => consentGranted[p.id]);
 
   const patient = patients[selectedPatientIdx];
 
@@ -574,9 +613,10 @@ export default function StriveAgent() {
   useEffect(() => {
     setMessages([]);
     setActiveTool(null);
+    setConsentGranted({});
   }, [selectedPatientIdx]);
 
-  const sendMessage = useCallback(async (text: string, attachments: Attachment[] = []) => {
+  const executeSendMessage = useCallback(async (text: string, attachments: Attachment[] = []) => {
     if (!text.trim() && attachments.length === 0) return;
     const displayText = attachments.length > 0
       ? `${text || "(media attached)"}${attachments.map(a => ` [${a.type}: ${a.name}]`).join("")}`
@@ -666,6 +706,30 @@ export default function StriveAgent() {
     }
   }, [patient, patients]);
 
+  const sendMessage = useCallback((text: string, attachments: Attachment[] = []) => {
+    if (!text.trim() && attachments.length === 0) return;
+    if (!requiredConsented) {
+      setPendingQuery({ text, attachments });
+      setShowConsentModal(true);
+      return;
+    }
+    executeSendMessage(text, attachments);
+  }, [requiredConsented, executeSendMessage]);
+
+  const handleConsentGrantAll = useCallback(() => {
+    const granted: Record<string, boolean> = {};
+    CONSENT_PERMISSIONS.forEach(p => { granted[p.id] = true; });
+    setConsentGranted(granted);
+  }, []);
+
+  const handleConsentSubmit = useCallback(() => {
+    setShowConsentModal(false);
+    if (pendingQuery && requiredConsented) {
+      executeSendMessage(pendingQuery.text, pendingQuery.attachments);
+      setPendingQuery(null);
+    }
+  }, [pendingQuery, requiredConsented, executeSendMessage]);
+
   const toolPanel = useMemo(() => {
     if (!activeTool) return null;
     switch (activeTool) {
@@ -681,6 +745,88 @@ export default function StriveAgent() {
 
   return (
     <div className="h-screen flex flex-col bg-white text-gray-900 overflow-hidden">
+      {/* ═══════ Compliance Consent Modal ═══════ */}
+      {showConsentModal && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" onClick={() => { setShowConsentModal(false); setPendingQuery(null); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[560px] max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-200 bg-gradient-to-r from-amber-50 to-orange-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Data Access Authorization Required</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">HIPAA Privacy Rule §164.502 — Patient data access consent</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-gray-600">Grant permissions for StriveMAP Agent to access patient data for <strong>{patient.name}</strong> ({patient.id})</p>
+                <button
+                  onClick={handleConsentGrantAll}
+                  className="px-3 py-1.5 bg-[#00B894] text-white text-xs font-semibold rounded-lg hover:bg-[#00a383] transition-colors whitespace-nowrap"
+                >
+                  Grant All Permissions
+                </button>
+              </div>
+
+              {Object.entries(CATEGORY_LABELS).map(([catKey, cat]) => {
+                const perms = CONSENT_PERMISSIONS.filter(p => p.category === catKey);
+                if (perms.length === 0) return null;
+                return (
+                  <div key={catKey} className="mb-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold bg-${cat.color}-100 text-${cat.color}-700`}>{cat.label}</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {perms.map(perm => (
+                        <label key={perm.id} className={`flex items-start gap-3 p-2.5 rounded-lg border transition-all cursor-pointer ${consentGranted[perm.id] ? "border-[#00B894] bg-[#00B894]/5" : "border-gray-200 hover:border-gray-300"}`}>
+                          <input
+                            type="checkbox"
+                            checked={!!consentGranted[perm.id]}
+                            onChange={e => setConsentGranted(prev => ({ ...prev, [perm.id]: e.target.checked }))}
+                            className="mt-0.5 w-4 h-4 rounded border-gray-300 text-[#00B894] focus:ring-[#00B894]"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-900">{perm.label}</span>
+                              {perm.required && <span className="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded font-semibold">REQUIRED</span>}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">{perm.description}</p>
+                          </div>
+                          {consentGranted[perm.id] && <span className="text-[#00B894] text-sm mt-0.5">✓</span>}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="p-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+              <div className="text-[10px] text-gray-400">
+                <span className="flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                  All access logged to immutable audit trail • On-premise only • Zero data egress
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setShowConsentModal(false); setPendingQuery(null); }} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+                <button
+                  onClick={handleConsentSubmit}
+                  disabled={!requiredConsented}
+                  className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${requiredConsented ? "bg-[#00B894] text-white hover:bg-[#00a383]" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
+                >
+                  Authorize Access
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="h-12 bg-white border-b border-gray-200 px-5 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
@@ -778,8 +924,30 @@ export default function StriveAgent() {
             ))}
           </div>
 
-          {/* Compliance badges */}
+          {/* Consent & Compliance */}
           <div className="mt-auto p-4 border-t border-gray-100">
+            {allConsented ? (
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-xs text-green-600 font-semibold">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                    All permissions granted
+                  </div>
+                  <button onClick={() => setConsentGranted({})} className="text-[9px] text-gray-400 hover:text-red-500 transition-colors">Revoke</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setPendingQuery(null); setShowConsentModal(true); }}
+                className="w-full mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-left hover:bg-amber-100 transition-colors"
+              >
+                <div className="flex items-center gap-2 text-xs text-amber-700 font-semibold">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                  Authorization required
+                </div>
+                <p className="text-[10px] text-amber-600 mt-1">Click to grant data access permissions</p>
+              </button>
+            )}
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs text-gray-500">
                 <div className="w-5 h-5 rounded bg-green-100 flex items-center justify-center">

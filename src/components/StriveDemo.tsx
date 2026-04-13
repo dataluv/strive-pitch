@@ -1283,6 +1283,57 @@ function hospitalTypeBadge(type: Hospital["type"]) {
   }
 }
 
+/* ============================================================
+   CONSENT PERMISSION TYPES
+   ============================================================ */
+
+interface ConsentPermission {
+  id: string;
+  label: string;
+  description: string;
+  category: "patient-data" | "clinical" | "ai-model" | "audit";
+  required: boolean;
+}
+
+function getConsentPermissions(jurisdiction: string): ConsentPermission[] {
+  const base: ConsentPermission[] = [
+    { id: "vitals-access", label: "Vital Signs Access", description: "Read real-time and historical vital signs (MAP, HR, SpO2, temperature)", category: "patient-data", required: true },
+    { id: "labs-access", label: "Laboratory Results", description: "Access lab panels including CBC, BMP, coagulation, lactate", category: "patient-data", required: true },
+    { id: "medications-access", label: "Medication Records", description: "View active medications, antibiotic regimen, and vasopressor infusions", category: "patient-data", required: true },
+    { id: "demographics", label: "Patient Demographics", description: "Access age, sex, BMI, comorbidities, and admission history", category: "patient-data", required: true },
+    { id: "rl-recommendation", label: "RL Treatment Recommendation", description: "Generate RL-based treatment recommendations from on-premise model", category: "ai-model", required: true },
+    { id: "cohort-comparison", label: "Cohort Comparison", description: "Compare against de-identified similar patient trajectories", category: "ai-model", required: false },
+    { id: "risk-scoring", label: "Risk Score Computation", description: "Compute real-time mortality risk and SOFA trajectory", category: "clinical", required: false },
+    { id: "audit-log", label: "Audit Trail Logging", description: "Log all queries and recommendations to immutable audit trail", category: "audit", required: true },
+  ];
+
+  if (jurisdiction === "UK") {
+    base.push(
+      { id: "caldicott-approval", label: "Caldicott Guardian Approval", description: "Confirm Caldicott Guardian has approved this data access pattern", category: "audit", required: true },
+      { id: "dspt-compliance", label: "DSPT Compliance Check", description: "Verify NHS Data Security and Protection Toolkit compliance", category: "audit", required: true },
+    );
+  } else if (jurisdiction === "EU") {
+    base.push(
+      { id: "gdpr-legal-basis", label: "GDPR Legal Basis (Art. 6/9)", description: "Confirm lawful basis for processing under GDPR Article 6 and special category data under Article 9", category: "audit", required: true },
+      { id: "dpia-check", label: "DPIA Verification", description: "Verify Data Protection Impact Assessment covers this processing activity", category: "audit", required: true },
+    );
+  } else {
+    base.push(
+      { id: "hipaa-authorization", label: "HIPAA Authorization", description: "Confirm HIPAA authorization for accessing Protected Health Information", category: "audit", required: true },
+      { id: "minimum-necessary", label: "Minimum Necessary Standard", description: "Verify request meets HIPAA minimum necessary standard for PHI access", category: "audit", required: true },
+    );
+  }
+
+  return base;
+}
+
+const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
+  "patient-data": { label: "Patient Data", color: "blue" },
+  clinical: { label: "Clinical Analysis", color: "purple" },
+  "ai-model": { label: "AI/RL Model", color: "green" },
+  audit: { label: "Compliance & Audit", color: "amber" },
+};
+
 export default function StriveDemo() {
   const allPatients = useMemo(() => getAllPatients(), []);
   const [selectedHospitalIdx, setSelectedHospitalIdx] = useState(0);
@@ -1296,8 +1347,16 @@ export default function StriveDemo() {
   const [agentInput, setAgentInput] = useState("");
   const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Compliance consent state
+  const [consentGranted, setConsentGranted] = useState<Record<string, boolean>>({});
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [pendingQuery, setPendingQuery] = useState<{ text: string; attachments: Attachment[] } | null>(null);
 
   const selectedHospital = HOSPITALS[selectedHospitalIdx];
+  const hospitalJurisdiction = getHospitalJurisdiction(selectedHospital.id);
+  const consentPermissions = useMemo(() => getConsentPermissions(hospitalJurisdiction), [hospitalJurisdiction]);
+  const allConsented = consentPermissions.every(p => consentGranted[p.id]);
+  const requiredConsented = consentPermissions.filter(p => p.required).every(p => consentGranted[p.id]);
 
   const patients = useMemo(() => {
     const slice = allPatients.slice(selectedHospital.patientStart, selectedHospital.patientEnd);
@@ -1339,11 +1398,12 @@ export default function StriveDemo() {
     );
   }, [patients, searchQuery]);
 
-  // Reset to first patient when hospital changes
+  // Reset to first patient and consent when hospital changes
   useEffect(() => {
     setSelectedPatientIdx(0);
     setSearchQuery("");
     setShowPatientList(false);
+    setConsentGranted({});
   }, [selectedHospitalIdx]);
 
   useEffect(() => {
@@ -1352,8 +1412,7 @@ export default function StriveDemo() {
     setExpandedInsight(null);
   }, [selectedPatientIdx]);
 
-  const askAgent = useCallback(async (question: string, attachments: Attachment[] = []) => {
-    if (!question.trim() && attachments.length === 0) return;
+  const executeAgentQuery = useCallback(async (question: string, attachments: Attachment[] = []) => {
     const displayText = attachments.length > 0
       ? `${question || "(media attached)"}${attachments.map(a => ` [${a.type}: ${a.name}]`).join("")}`
       : question;
@@ -1440,6 +1499,31 @@ export default function StriveDemo() {
     }
   }, [patient]);
 
+  const askAgent = useCallback((question: string, attachments: Attachment[] = []) => {
+    if (!question.trim() && attachments.length === 0) return;
+    if (!requiredConsented) {
+      // Show consent modal first
+      setPendingQuery({ text: question, attachments });
+      setShowConsentModal(true);
+      return;
+    }
+    executeAgentQuery(question, attachments);
+  }, [requiredConsented, executeAgentQuery]);
+
+  const handleConsentGrantAll = useCallback(() => {
+    const granted: Record<string, boolean> = {};
+    consentPermissions.forEach(p => { granted[p.id] = true; });
+    setConsentGranted(granted);
+  }, [consentPermissions]);
+
+  const handleConsentSubmit = useCallback(() => {
+    setShowConsentModal(false);
+    if (pendingQuery && requiredConsented) {
+      executeAgentQuery(pendingQuery.text, pendingQuery.attachments);
+      setPendingQuery(null);
+    }
+  }, [pendingQuery, requiredConsented, executeAgentQuery]);
+
   // Stats click handlers
   const showVitalStats = useCallback((vital: "hr" | "sbp" | "dbp" | "map" | "lactate" | "temp" | "wbc" | "creatinine" | "sofa" | "riskScore", label: string, currentVal: string, unit: string) => {
     const stats = getVitalDistribution(patients, vital);
@@ -1512,6 +1596,93 @@ export default function StriveDemo() {
           correlations={getSofaMortalityCorrelation(patients)}
           onClose={() => setSofaModal(false)}
         />
+      )}
+
+      {/* ═══════ Compliance Consent Modal ═══════ */}
+      {showConsentModal && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" onClick={() => { setShowConsentModal(false); setPendingQuery(null); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[560px] max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-200 bg-gradient-to-r from-amber-50 to-orange-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Data Access Authorization Required</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {hospitalJurisdiction === "UK" && "UK Data Protection Act 2018 & NHS DSPT — "}
+                    {hospitalJurisdiction === "EU" && "EU GDPR Art. 6/9 & MDR 2017/745 — "}
+                    {hospitalJurisdiction === "US" && "HIPAA Privacy Rule §164.502 — "}
+                    {selectedHospital.name}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-gray-600">Grant permissions for StriveMAP Agent to access patient data for <strong>{patient.name}</strong> ({patient.id})</p>
+                <button
+                  onClick={handleConsentGrantAll}
+                  className="px-3 py-1.5 bg-[#00B894] text-white text-xs font-semibold rounded-lg hover:bg-[#00a383] transition-colors whitespace-nowrap"
+                >
+                  Grant All Permissions
+                </button>
+              </div>
+
+              {Object.entries(CATEGORY_LABELS).map(([catKey, cat]) => {
+                const perms = consentPermissions.filter(p => p.category === catKey);
+                if (perms.length === 0) return null;
+                return (
+                  <div key={catKey} className="mb-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold bg-${cat.color}-100 text-${cat.color}-700`}>{cat.label}</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {perms.map(perm => (
+                        <label key={perm.id} className={`flex items-start gap-3 p-2.5 rounded-lg border transition-all cursor-pointer ${consentGranted[perm.id] ? "border-[#00B894] bg-[#00B894]/5" : "border-gray-200 hover:border-gray-300"}`}>
+                          <input
+                            type="checkbox"
+                            checked={!!consentGranted[perm.id]}
+                            onChange={e => setConsentGranted(prev => ({ ...prev, [perm.id]: e.target.checked }))}
+                            className="mt-0.5 w-4 h-4 rounded border-gray-300 text-[#00B894] focus:ring-[#00B894]"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-900">{perm.label}</span>
+                              {perm.required && <span className="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded font-semibold">REQUIRED</span>}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">{perm.description}</p>
+                          </div>
+                          {consentGranted[perm.id] && <span className="text-[#00B894] text-sm mt-0.5">✓</span>}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="p-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+              <div className="text-[10px] text-gray-400">
+                <span className="flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                  All access logged to immutable audit trail • On-premise only • Zero data egress
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setShowConsentModal(false); setPendingQuery(null); }} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors">Cancel</button>
+                <button
+                  onClick={handleConsentSubmit}
+                  disabled={!requiredConsented}
+                  className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${requiredConsented ? "bg-[#00B894] text-white hover:bg-[#00a383]" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
+                >
+                  Authorize Access
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ═══════ TOP BAR ═══════ */}
@@ -2156,14 +2327,36 @@ export default function StriveDemo() {
               <a href="/agent" className="text-[10px] text-[#00B894] font-semibold hover:underline">Full view &rarr;</a>
             </div>
             <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-400">
-              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />HIPAA</span>
-              <span>|</span>
-              <span>SOC2</span>
+              {hospitalJurisdiction === "US" && <><span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />HIPAA</span><span>|</span><span>SOC2</span><span>|</span><span>21 CFR 11</span></>}
+              {hospitalJurisdiction === "UK" && <><span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />UK GDPR</span><span>|</span><span>NHS DTAC</span><span>|</span><span>DCB0129</span></>}
+              {hospitalJurisdiction === "EU" && <><span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />EU GDPR</span><span>|</span><span>ISO 13485</span><span>|</span><span>MDR</span></>}
               <span>|</span>
               <span>On-Premise</span>
-              <span>|</span>
-              <span>RL Model</span>
             </div>
+          </div>
+
+          {/* Consent status bar */}
+          <div className="px-3 py-2 border-b border-gray-100 shrink-0">
+            {allConsented ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-[10px] text-green-600">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                  <span className="font-semibold">All permissions granted</span>
+                </div>
+                <button onClick={() => setConsentGranted({})} className="text-[9px] text-gray-400 hover:text-red-500 transition-colors">Revoke</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setPendingQuery(null); setShowConsentModal(true); }}
+                className="w-full flex items-center justify-between text-[10px] group"
+              >
+                <div className="flex items-center gap-1.5 text-amber-600">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                  <span className="font-semibold">Authorization required</span>
+                </div>
+                <span className="text-[#00B894] font-semibold group-hover:underline">Grant access →</span>
+              </button>
+            )}
           </div>
 
           {/* Quick actions */}
@@ -2181,7 +2374,7 @@ export default function StriveDemo() {
                   <svg className="w-5 h-5 text-[#00B894]" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" /></svg>
                 </div>
                 <p className="text-xs text-gray-500">Ask about this patient</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">RL-powered, not LLM</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">RL-powered, not LLM • Consent required</p>
               </div>
             )}
             {agentMessages.map((msg, i) => {
