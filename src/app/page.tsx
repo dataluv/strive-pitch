@@ -1,7 +1,7 @@
 "use client";
 
-import StriveDemo from "@/components/StriveDemo";
+import StoryDemo from "@/components/StoryDemo";
 
 export default function Home() {
-  return <StriveDemo />;
+  return <StoryDemo />;
 }
