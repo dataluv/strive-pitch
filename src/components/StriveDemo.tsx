@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { MediaInputBar } from "./MediaInput";
+import { MediaInputBar, type Attachment } from "./MediaInput";
 import {
   getAllPatients,
   generateVitals,
@@ -540,31 +540,74 @@ export default function StriveDemo() {
     setExpandedInsight(null);
   }, [selectedPatientIdx]);
 
-  const askAgent = useCallback((question: string) => {
-    if (!question.trim()) return;
-    setAgentMessages(prev => [...prev, `You: ${question}`]);
+  const askAgent = useCallback(async (question: string, attachments: Attachment[] = []) => {
+    if (!question.trim() && attachments.length === 0) return;
+    const displayText = attachments.length > 0
+      ? `${question || "(media attached)"}${attachments.map(a => ` [${a.type}: ${a.name}]`).join("")}`
+      : question;
+    setAgentMessages(prev => [...prev, `You: ${displayText}`]);
     setAgentInput("");
     setAgentThinking(true);
 
-    const responses: Record<string, string> = {
-      default: `Based on analysis of ${patient.similarCount} similar trajectories from ${patient.similarPatients} patients: ${patient.recommendation.rationale}`,
-      fluid: `Fluid recommendation for Patient #${patient.id}: ${patient.recommendation.fluidBolus === "give" ? "Administer 250 mL crystalloid bolus" : "Withhold fluid bolus"}. Expected benefit: ${Math.max(patient.recommendation.bolusExpectedBenefit, patient.recommendation.noBolusExpectedBenefit)}. ${patient.recommendation.rationale}`,
-      mortality: `Current mortality risk score: ${patient.riskScore}%. SOFA score ${patient.sofa} places this patient in the ${patient.sofa > 10 ? "high" : patient.sofa > 6 ? "moderate" : "low"} risk category. Key risk factors: ${patient.comorbidities.join(", ")}. ${patient.labs.filter(l => l.flag === "critical").map(l => `${l.name} (${l.value}) is critically abnormal`).join(". ")}.`,
-      vasopressor: patient.vasoactive
-        ? `Current vasopressor: ${patient.vasoactive}. ${patient.recommendation.vasopressor || "No dose change recommended at this time."}. MAP target ${patient.recommendation.mapTarget} mmHg based on RL policy trained on 5M+ ICU hours.`
-        : `No vasopressors currently active. ${patient.recommendation.vasopressor || "Vasopressor initiation not recommended at this time. MAP is currently " + patient.map + " mmHg."}`,
-    };
+    // Build patient context string
+    const patientContext = `Name: ${patient.name} | ID: ${patient.id} | Age: ${patient.age}y ${patient.sex} | BMI: ${patient.bmi} | Diagnosis: ${patient.admitDiagnosis} | Sepsis Source: ${patient.sepsisSource} | Acuity: ${patient.acuity} | SOFA: ${patient.sofa}/24 | MAP: ${patient.map} mmHg | Lactate: ${patient.lactate} mmol/L | HR: ${patient.hr} | Temp: ${patient.temp}C | Creatinine: ${patient.creatinine} | Risk Score: ${patient.riskScore}% | Vasoactive: ${patient.vasoactive || "None"} | Comorbidities: ${patient.comorbidities.join(", ")} | Recommendation: ${patient.recommendation.rationale} | Fluid Bolus: ${patient.recommendation.fluidBolus} | MAP Target: ${patient.recommendation.mapTarget} mmHg | Vasopressor: ${patient.recommendation.vasopressor || "None"} | Similar Trajectories: ${patient.similarCount} from ${patient.similarPatients} patients`;
 
-    const lowerQ = question.toLowerCase();
-    let response = responses.default;
-    if (lowerQ.includes("fluid") || lowerQ.includes("bolus")) response = responses.fluid;
-    else if (lowerQ.includes("mortality") || lowerQ.includes("risk") || lowerQ.includes("prognosis")) response = responses.mortality;
-    else if (lowerQ.includes("vasopressor") || lowerQ.includes("norepinephrine") || lowerQ.includes("pressor")) response = responses.vasopressor;
+    // Convert attachments to base64 data URLs
+    const attachmentData: { type: string; name: string; data: string }[] = [];
+    for (const att of attachments) {
+      try {
+        const arrayBuffer = await att.blob.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        let binary = "";
+        for (let i = 0; i < uint8.length; i++) {
+          binary += String.fromCharCode(uint8[i]);
+        }
+        const base64 = btoa(binary);
+        const mimeType = att.blob.type || (att.type === "image" ? "image/png" : att.type === "audio" ? "audio/webm" : "video/webm");
+        attachmentData.push({
+          type: att.type,
+          name: att.name,
+          data: `data:${mimeType};base64,${base64}`,
+        });
+      } catch {
+        // Skip attachment if conversion fails
+      }
+    }
 
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: question,
+          attachments: attachmentData,
+          patientContext,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      setAgentMessages(prev => [...prev, `StriveMAP Agent: ${data.response}`]);
+    } catch {
+      // Fallback to hardcoded responses
+      const responses: Record<string, string> = {
+        default: `Based on analysis of ${patient.similarCount} similar trajectories from ${patient.similarPatients} patients: ${patient.recommendation.rationale}`,
+        fluid: `Fluid recommendation for Patient #${patient.id}: ${patient.recommendation.fluidBolus === "give" ? "Administer 250 mL crystalloid bolus" : "Withhold fluid bolus"}. Expected benefit: ${Math.max(patient.recommendation.bolusExpectedBenefit, patient.recommendation.noBolusExpectedBenefit)}. ${patient.recommendation.rationale}`,
+        mortality: `Current mortality risk score: ${patient.riskScore}%. SOFA score ${patient.sofa} places this patient in the ${patient.sofa > 10 ? "high" : patient.sofa > 6 ? "moderate" : "low"} risk category. Key risk factors: ${patient.comorbidities.join(", ")}. ${patient.labs.filter(l => l.flag === "critical").map(l => `${l.name} (${l.value}) is critically abnormal`).join(". ")}.`,
+        vasopressor: patient.vasoactive
+          ? `Current vasopressor: ${patient.vasoactive}. ${patient.recommendation.vasopressor || "No dose change recommended at this time."}. MAP target ${patient.recommendation.mapTarget} mmHg based on RL policy trained on 5M+ ICU hours.`
+          : `No vasopressors currently active. ${patient.recommendation.vasopressor || "Vasopressor initiation not recommended at this time. MAP is currently " + patient.map + " mmHg."}`,
+      };
+      const lowerQ = question.toLowerCase();
+      let response = responses.default;
+      if (lowerQ.includes("fluid") || lowerQ.includes("bolus")) response = responses.fluid;
+      else if (lowerQ.includes("mortality") || lowerQ.includes("risk") || lowerQ.includes("prognosis")) response = responses.mortality;
+      else if (lowerQ.includes("vasopressor") || lowerQ.includes("norepinephrine") || lowerQ.includes("pressor")) response = responses.vasopressor;
       setAgentMessages(prev => [...prev, `StriveMAP Agent: ${response}`]);
+    } finally {
       setAgentThinking(false);
-    }, 1200);
+    }
   }, [patient]);
 
   // Stats click handlers
@@ -1261,7 +1304,7 @@ export default function StriveDemo() {
             {agentThinking && (
               <div className="flex justify-start">
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs text-gray-500">
-                  <span className="animate-pulse">Analyzing {patient.similarCount} trajectories...</span>
+                  <span className="animate-pulse">Analyzing...</span>
                 </div>
               </div>
             )}
@@ -1273,7 +1316,7 @@ export default function StriveDemo() {
               compact
               disabled={agentThinking}
               placeholder="Ask anything..."
-              onSend={(text) => askAgent(text)}
+              onSend={(text, attachments) => askAgent(text, attachments)}
             />
             <p className="text-[9px] text-gray-400 text-center mt-1">RL model v2.4.1 • Not an LLM • On-premise</p>
           </div>
