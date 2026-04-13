@@ -877,10 +877,369 @@ function TreatmentSimulatorTab({ patient }: { patient: Patient }) {
 
 
 /* ============================================================
+   COMPLIANCE & DATA PROTECTION TAB
+   ============================================================ */
+
+interface ComplianceRegime {
+  jurisdiction: string;
+  flag: string;
+  regulations: { name: string; status: "certified" | "pending" | "in-progress"; detail: string }[];
+  dataResidency: string;
+  accessModel: string;
+  auditFrequency: string;
+  encryptionStandard: string;
+  deploymentType: string;
+}
+
+const COMPLIANCE_BY_JURISDICTION: Record<string, ComplianceRegime> = {
+  US: {
+    jurisdiction: "United States",
+    flag: "🇺🇸",
+    regulations: [
+      { name: "HIPAA", status: "certified", detail: "Full compliance — BAA in place with each hospital partner. PHI never leaves on-premise infrastructure." },
+      { name: "FDA 510(k)", status: "in-progress", detail: "Pre-submission meeting completed. Clinical Decision Support Software (Class II). Target clearance Q3 2026." },
+      { name: "SOC 2 Type II", status: "certified", detail: "Annual audit by Deloitte. Zero critical findings in FY2025." },
+      { name: "HITRUST CSF", status: "certified", detail: "r2 certified. Covers all 19 control domains." },
+      { name: "21 CFR Part 11", status: "certified", detail: "Electronic records and signatures compliant. Full audit trail." },
+    ],
+    dataResidency: "Data stored on-premise at each US hospital site. No cloud egress. Encrypted at rest (AES-256) and in transit (TLS 1.3).",
+    accessModel: "Role-Based Access Control (RBAC) with SAML 2.0 SSO integration. Attending physician, fellow, nurse, pharmacist, and auditor roles. Minimum necessary access principle enforced.",
+    auditFrequency: "Continuous + quarterly formal review",
+    encryptionStandard: "AES-256 at rest, TLS 1.3 in transit, HSM key management",
+    deploymentType: "On-premise (hospital data center)",
+  },
+  UK: {
+    jurisdiction: "United Kingdom",
+    flag: "🇬🇧",
+    regulations: [
+      { name: "UK Data Protection Act 2018", status: "certified", detail: "Registered with ICO. Lawful basis: legitimate interest for direct care + explicit consent for research." },
+      { name: "UK GDPR", status: "certified", detail: "Article 35 DPIA completed. Data Protection Officer appointed. Annual review cycle." },
+      { name: "NHS Digital DTAC", status: "certified", detail: "Digital Technology Assessment Criteria — all clinical safety, data protection, technical security, and interoperability standards met." },
+      { name: "DCB0129 Clinical Safety", status: "certified", detail: "Clinical Safety Case Report filed. Clinical Safety Officer appointed. Hazard log maintained." },
+      { name: "CE/UKCA Mark (Class IIb)", status: "in-progress", detail: "UKCA application filed via BSI. Notified body review underway. MHRA registration pending." },
+      { name: "Cyber Essentials Plus", status: "certified", detail: "Certified by IASME. Required for NHS suppliers handling patient data." },
+    ],
+    dataResidency: "Data hosted within NHS Trust infrastructure. Compliant with NHS Data Security and Protection Toolkit (DSPT). No data leaves UK sovereign territory.",
+    accessModel: "NHS Smartcard / NHS Identity integration. Role-based access aligned to NHS job roles. Caldicott Guardian approval required for each deployment.",
+    auditFrequency: "Continuous + annual DSPT submission",
+    encryptionStandard: "AES-256, TLS 1.3, NHS-approved HSM, FIPS 140-2",
+    deploymentType: "On-premise (NHS Trust data centre / HSCN)",
+  },
+  EU: {
+    jurisdiction: "European Union",
+    flag: "🇪🇺",
+    regulations: [
+      { name: "EU GDPR", status: "certified", detail: "Article 35 DPIA completed for all EU sites. DPO designated. Standard Contractual Clauses in place." },
+      { name: "CE Mark (Class IIb)", status: "in-progress", detail: "MDR 2017/745 pathway. Notified body: TÜV Rheinland. Clinical evaluation report submitted." },
+      { name: "ISO 13485:2016", status: "certified", detail: "Quality Management System for medical devices. Certified by TÜV. Covers design, development, and deployment." },
+      { name: "ISO 27001:2022", status: "certified", detail: "Information Security Management System. Certified scope covers all clinical data processing." },
+      { name: "EU AI Act (High-Risk)", status: "in-progress", detail: "Classified as high-risk AI (Annex III, health). Conformity assessment underway. Transparency and human oversight requirements met." },
+      { name: "Gematik (Germany)", status: "certified", detail: "Telematics infrastructure compatibility verified for German healthcare network." },
+    ],
+    dataResidency: "Data remains within hospital premises in EU member state. Compliant with Schrems II. No transatlantic data transfers.",
+    accessModel: "Hospital Active Directory / LDAP integration. German Heilberufeausweis (HBA) electronic health professional card support. Data access logged per Art. 30 GDPR.",
+    auditFrequency: "Continuous + annual ISO audit + biannual GDPR review",
+    encryptionStandard: "AES-256, TLS 1.3, eIDAS-qualified certificates",
+    deploymentType: "On-premise (hospital Rechenzentrum)",
+  },
+};
+
+function getHospitalJurisdiction(hospitalId: string): string {
+  if (hospitalId === "nhs") return "UK";
+  if (hospitalId === "charite") return "EU";
+  return "US";
+}
+
+function getHospitalJurisdictions(hospitalId: string): string[] {
+  if (hospitalId === "all") return ["US", "UK", "EU"];
+  if (hospitalId === "nhs") return ["UK"];
+  if (hospitalId === "charite") return ["EU"];
+  return ["US"];
+}
+
+interface ComplianceTabProps {
+  hospital: Hospital;
+}
+
+function ComplianceTab({ hospital }: ComplianceTabProps) {
+  const [selectedJurisdiction, setSelectedJurisdiction] = useState<string | null>(null);
+  const [showComparison, setShowComparison] = useState(false);
+  const [expandedReg, setExpandedReg] = useState<string | null>(null);
+  const [showAccessFlow, setShowAccessFlow] = useState(false);
+
+  const jurisdictions = getHospitalJurisdictions(hospital.id);
+  const activeJurisdiction = selectedJurisdiction || jurisdictions[0];
+  const regime = COMPLIANCE_BY_JURISDICTION[activeJurisdiction];
+
+  return (
+    <>
+      {/* Jurisdiction selector */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Regulatory Compliance & Data Protection</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {hospital.id === "all" ? "Multi-jurisdictional compliance across all partner sites" : `Compliance framework for ${hospital.name}`}
+            </p>
+          </div>
+          <button
+            onClick={() => setShowComparison(!showComparison)}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${showComparison ? "bg-red-500 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+          >
+            {showComparison ? "Hide" : "vs OpenAI / Anthropic"}
+          </button>
+        </div>
+
+        {/* Jurisdiction tabs */}
+        <div className="flex gap-2 mb-4">
+          {jurisdictions.map(j => {
+            const r = COMPLIANCE_BY_JURISDICTION[j];
+            return (
+              <button
+                key={j}
+                onClick={() => setSelectedJurisdiction(j)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeJurisdiction === j
+                    ? "bg-[#00B894] text-white shadow-sm"
+                    : "bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200"
+                }`}
+              >
+                <span className="text-base">{r.flag}</span>
+                <span>{r.jurisdiction}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Comparison banner */}
+        {showComparison && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+            <h3 className="text-sm font-bold text-red-800 mb-3">Why OpenAI / Anthropic Cannot Serve This Market</h3>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div className="bg-white rounded-lg p-3 border border-red-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded bg-red-100 flex items-center justify-center"><span className="text-red-600 font-bold text-[10px]">✗</span></div>
+                  <span className="font-bold text-gray-900">Data Residency</span>
+                </div>
+                <p className="text-gray-600">Cloud LLMs send patient data to US data centres. Violates <strong>GDPR Art. 44</strong> (EU), <strong>UK GDPR</strong>, <strong>HIPAA BAA</strong> requirements for on-premise PHI.</p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-red-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded bg-red-100 flex items-center justify-center"><span className="text-red-600 font-bold text-[10px]">✗</span></div>
+                  <span className="font-bold text-gray-900">Medical Device Cert</span>
+                </div>
+                <p className="text-gray-600">No FDA 510(k), CE Mark, or UKCA certification. Cannot legally be used for <strong>clinical decision support</strong> in treatment decisions.</p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-red-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded bg-red-100 flex items-center justify-center"><span className="text-red-600 font-bold text-[10px]">✗</span></div>
+                  <span className="font-bold text-gray-900">Deterministic Output</span>
+                </div>
+                <p className="text-gray-600">LLMs hallucinate and produce non-deterministic outputs. RL policies are <strong>deterministic</strong> — same state → same action. Required for clinical safety.</p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-red-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded bg-red-100 flex items-center justify-center"><span className="text-red-600 font-bold text-[10px]">✗</span></div>
+                  <span className="font-bold text-gray-900">Audit Trail</span>
+                </div>
+                <p className="text-gray-600">No 21 CFR Part 11 compliance. No DCB0129 clinical safety case. Cannot provide the <strong>traceable decision logs</strong> regulators require.</p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-red-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded bg-red-100 flex items-center justify-center"><span className="text-red-600 font-bold text-[10px]">✗</span></div>
+                  <span className="font-bold text-gray-900">EU AI Act</span>
+                </div>
+                <p className="text-gray-600">General-purpose AI models face <strong>systemic risk</strong> classification. StriveMAP&apos;s narrow RL policy has a clear conformity pathway as a high-risk medical AI.</p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-green-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded bg-green-100 flex items-center justify-center"><span className="text-green-600 font-bold text-[10px]">✓</span></div>
+                  <span className="font-bold text-[#00B894]">STRIVE Advantage</span>
+                </div>
+                <p className="text-gray-600"><strong>On-premise RL</strong> — no data egress, deterministic policy, full audit trail, medical device pathway, jurisdiction-specific deployment. <strong>Built for regulated healthcare.</strong></p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Regulatory certifications */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-bold text-gray-900">{regime.flag} {regime.jurisdiction} — Regulatory Status</h3>
+          <div className="flex items-center gap-3 text-[10px]">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Certified</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" />In Progress</span>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {regime.regulations.map(reg => (
+            <button
+              key={reg.name}
+              onClick={() => setExpandedReg(expandedReg === reg.name ? null : reg.name)}
+              className="w-full text-left"
+            >
+              <div className={`border rounded-lg p-3 transition-all ${
+                expandedReg === reg.name ? "border-[#00B894] bg-[#00B894]/5" : "border-gray-200 hover:border-gray-300 bg-white"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      reg.status === "certified" ? "bg-green-100" : "bg-amber-100"
+                    }`}>
+                      <span className={`text-sm ${reg.status === "certified" ? "text-green-600" : "text-amber-600"}`}>
+                        {reg.status === "certified" ? "✓" : "⋯"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-sm font-semibold text-gray-900">{reg.name}</span>
+                      <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
+                        reg.status === "certified" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                      }`}>
+                        {reg.status === "certified" ? "Certified" : "In Progress"}
+                      </span>
+                    </div>
+                  </div>
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${expandedReg === reg.name ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </div>
+                {expandedReg === reg.name && (
+                  <p className="mt-2 text-xs text-gray-600 leading-relaxed pl-11">{reg.detail}</p>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Data Residency & Encryption */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+              <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <h3 className="text-sm font-bold text-gray-900">Data Residency</h3>
+          </div>
+          <p className="text-xs text-gray-600 leading-relaxed">{regime.dataResidency}</p>
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-[10px] px-2 py-1 bg-green-50 text-green-700 rounded-full font-medium">{regime.deploymentType}</span>
+            <span className="text-[10px] px-2 py-1 bg-blue-50 text-blue-700 rounded-full font-medium">Zero data egress</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
+              <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+            </div>
+            <h3 className="text-sm font-bold text-gray-900">Encryption & Security</h3>
+          </div>
+          <p className="text-xs text-gray-600 leading-relaxed">{regime.encryptionStandard}</p>
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-[10px] px-2 py-1 bg-purple-50 text-purple-700 rounded-full font-medium">Audit: {regime.auditFrequency}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Access Control Flow */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <button onClick={() => setShowAccessFlow(!showAccessFlow)} className="w-full text-left">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Access Permission Flow</h3>
+                <p className="text-xs text-gray-500">How clinicians gain authorized access — click to expand</p>
+              </div>
+            </div>
+            <svg className={`w-5 h-5 text-gray-400 transition-transform ${showAccessFlow ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          </div>
+        </button>
+
+        {showAccessFlow && (
+          <div className="mt-4">
+            <p className="text-xs text-gray-600 mb-4">{regime.accessModel}</p>
+            {/* Visual flow */}
+            <div className="flex items-center gap-0 overflow-x-auto pb-2">
+              {[
+                { step: "1", label: "Identity Verification", detail: activeJurisdiction === "UK" ? "NHS Smartcard" : activeJurisdiction === "EU" ? "Heilberufeausweis (HBA)" : "Hospital SSO / SAML", color: "blue" },
+                { step: "2", label: "Role Authorization", detail: "RBAC check against hospital directory", color: "indigo" },
+                { step: "3", label: "Consent & Legal Basis", detail: activeJurisdiction === "US" ? "HIPAA authorization" : activeJurisdiction === "UK" ? "DPA 2018 lawful basis" : "GDPR Art. 6/9 basis", color: "purple" },
+                { step: "4", label: "Data Access Scope", detail: "Minimum necessary / need-to-know", color: "pink" },
+                { step: "5", label: "Audit Logging", detail: "Immutable log, 21 CFR Part 11", color: "rose" },
+                { step: "6", label: "Clinical Decision", detail: "RL recommendation + clinician override", color: "green" },
+              ].map((s, i) => (
+                <div key={i} className="flex items-center shrink-0">
+                  <div className="flex flex-col items-center w-28">
+                    <div className={`w-9 h-9 rounded-full bg-${s.color}-100 flex items-center justify-center mb-1.5`}>
+                      <span className={`text-${s.color}-700 font-bold text-xs`}>{s.step}</span>
+                    </div>
+                    <p className="text-[10px] font-semibold text-gray-900 text-center leading-tight">{s.label}</p>
+                    <p className="text-[9px] text-gray-500 text-center leading-tight mt-0.5">{s.detail}</p>
+                  </div>
+                  {i < 5 && (
+                    <svg className="w-4 h-4 text-gray-300 shrink-0 mx-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Live audit trail preview */}
+            <div className="mt-4 bg-gray-900 rounded-lg p-3 font-mono text-[10px] text-green-400 leading-relaxed">
+              <p className="text-gray-500 mb-1">// Live audit trail — immutable, tamper-evident</p>
+              <p>[{new Date().toISOString()}] AUTH user=dr.chen role=attending_physician method={activeJurisdiction === "UK" ? "nhs_smartcard" : activeJurisdiction === "EU" ? "hba_eid" : "saml_sso"} session=a4f8..c2e1</p>
+              <p>[{new Date().toISOString()}] ACCESS patient={hospital.id === "all" ? "PTN-0042" : `PTN-${hospital.patientStart + 1}`} scope=vitals,labs,recommendations rbac=AUTHORIZED</p>
+              <p>[{new Date().toISOString()}] QUERY rl_model=strive_map_v2.4.1 input_hash=sha256:9f86d..1e5e action=vasopressor_titration confidence=0.94</p>
+              <p>[{new Date().toISOString()}] DECISION clinician=dr.chen accepted_recommendation=true override=false signed=true</p>
+              <p className="text-amber-400">[{new Date().toISOString()}] COMPLIANCE jurisdiction={activeJurisdiction} {activeJurisdiction === "US" ? "hipaa=PASS 21cfr11=PASS" : activeJurisdiction === "UK" ? "uk_gdpr=PASS dcb0129=PASS dspt=PASS" : "eu_gdpr=PASS mdr_2017=PASS iso13485=PASS"} data_egress=NONE</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Compliance Summary Badges */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-gray-900 mb-3">Certification Overview</h3>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: "HIPAA", active: activeJurisdiction === "US" },
+            { label: "SOC 2 Type II", active: true },
+            { label: "HITRUST CSF", active: activeJurisdiction === "US" },
+            { label: "ISO 13485", active: activeJurisdiction === "EU" || activeJurisdiction === "US" },
+            { label: "ISO 27001", active: true },
+            { label: "FDA 510(k)", active: activeJurisdiction === "US", pending: true },
+            { label: "CE Mark IIb", active: activeJurisdiction === "EU", pending: true },
+            { label: "UKCA Mark", active: activeJurisdiction === "UK", pending: true },
+            { label: "UK GDPR", active: activeJurisdiction === "UK" },
+            { label: "EU GDPR", active: activeJurisdiction === "EU" },
+            { label: "DCB0129", active: activeJurisdiction === "UK" },
+            { label: "NHS DTAC", active: activeJurisdiction === "UK" },
+            { label: "Cyber Essentials+", active: activeJurisdiction === "UK" },
+            { label: "EU AI Act", active: activeJurisdiction === "EU", pending: true },
+            { label: "Gematik", active: activeJurisdiction === "EU" },
+            { label: "21 CFR Part 11", active: activeJurisdiction === "US" },
+          ].filter(b => b.active).map(b => (
+            <span key={b.label} className={`text-[10px] px-2.5 py-1 rounded-full font-medium border ${
+              b.pending
+                ? "bg-amber-50 text-amber-700 border-amber-200"
+                : "bg-green-50 text-green-700 border-green-200"
+            }`}>
+              {b.pending ? "⋯" : "✓"} {b.label}
+            </span>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+
+/* ============================================================
    MAIN DEMO COMPONENT
    ============================================================ */
 
-type Tab = "overview" | "labs" | "antibiotics" | "icu-overview" | "simulator";
+type Tab = "overview" | "labs" | "antibiotics" | "icu-overview" | "simulator" | "compliance";
 
 /* ============================================================
    HOSPITAL NETWORK
@@ -1454,6 +1813,7 @@ export default function StriveDemo() {
                 ["antibiotics", "Antibiotic Regimen"],
                 ["icu-overview", "ICU Overview"],
                 ["simulator", "Treatment Simulator"],
+                ["compliance", "Compliance & Data"],
               ] as [Tab, string][]
             ).map(([key, label]) => (
               <button
@@ -1771,6 +2131,8 @@ export default function StriveDemo() {
             {/* ═══════ TREATMENT SIMULATOR TAB ═══════ */}
             {activeTab === "simulator" && <TreatmentSimulatorTab patient={patient} />}
 
+            {/* ═══════ COMPLIANCE & DATA TAB ═══════ */}
+            {activeTab === "compliance" && <ComplianceTab hospital={selectedHospital} />}
 
           </div>
 
