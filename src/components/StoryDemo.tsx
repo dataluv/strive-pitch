@@ -858,7 +858,7 @@ function Scene6_Moat() {
 
       <div style={{ display: "flex", gap: 12 }}>
         <Link
-          href="/demo"
+          href="/platform"
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -873,10 +873,10 @@ function Scene6_Moat() {
             transition: "background 0.2s",
           }}
         >
-          Try the Clinical Demo &rarr;
+          Explore the Platform &rarr;
         </Link>
         <Link
-          href="/pitch"
+          href="/agent"
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -891,7 +891,7 @@ function Scene6_Moat() {
             transition: "background 0.2s",
           }}
         >
-          View Pitch Deck
+          Try the Agent
         </Link>
       </div>
     </div>
@@ -1339,17 +1339,14 @@ export default function StoryDemo() {
           <div style={{ flex: 1 }} />
 
           {/* Nav links */}
-          <Link href="/demo" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", fontWeight: 500 }}>
-            Demo
+          <Link href="/platform" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", fontWeight: 500 }}>
+            Platform
           </Link>
           <Link href="/agent" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", fontWeight: 500 }}>
             Agent
           </Link>
-          <Link href="/pitch" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", fontWeight: 500 }}>
-            Pitch
-          </Link>
           <Link
-            href="/demo"
+            href="/platform"
             style={{
               fontSize: 12,
               color: "#6366f1",
@@ -1360,7 +1357,7 @@ export default function StoryDemo() {
               borderRadius: 6,
             }}
           >
-            Skip to Demo &rarr;
+            Open Platform &rarr;
           </Link>
         </div>
       </div>

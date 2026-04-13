@@ -648,9 +648,8 @@ export default function StriveDemo() {
           </div>
           <span className="font-bold text-base tracking-tight text-gray-900">Strive</span>
           <nav className="flex items-center gap-1 ml-4">
-            <a href="/" className="px-3 py-1.5 text-sm font-semibold text-[#00B894] bg-[#00B894]/10 rounded-lg">Demo</a>
+            <a href="/platform" className="px-3 py-1.5 text-sm font-semibold text-[#00B894] bg-[#00B894]/10 rounded-lg">Platform</a>
             <a href="/agent" className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">Agent</a>
-            <a href="/pitch" className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">Pitch</a>
           </nav>
         </div>
 
@@ -1255,16 +1254,30 @@ export default function StriveDemo() {
                 </div>
 
                 <div className="p-4 border-t border-gray-200">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-2 py-1.5 focus-within:border-[#00B894] focus-within:ring-1 focus-within:ring-[#00B894]/20">
+                    <button onClick={() => alert("File upload — attach patient records, imaging, or lab results. HIPAA-compliant on-premise processing.")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Upload file">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                    </button>
+                    <button onClick={() => alert("Image upload — attach X-rays, CT scans, or clinical photos. Processed on-premise.")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Upload image">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    </button>
                     <input
                       type="text"
                       value={agentInput}
                       onChange={(e) => setAgentInput(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && askAgent(agentInput)}
                       placeholder="Ask about fluid management, vasopressors, prognosis..."
-                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#00B894] focus:ring-1 focus:ring-[#00B894]/20"
+                      className="flex-1 px-2 py-1 text-sm focus:outline-none bg-transparent"
                     />
-                    <button onClick={() => askAgent(agentInput)} disabled={agentThinking} className="px-4 py-2.5 bg-[#00B894] text-white rounded-lg text-sm font-semibold hover:bg-[#00a383] transition-colors disabled:opacity-50">Ask</button>
+                    <button onClick={() => alert("Voice input — speak your clinical question. Transcription happens on-premise. No data leaves the hospital.")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Voice input">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                    </button>
+                    <button onClick={() => alert("Camera — activate bedside camera for real-time visual assessment. HIPAA-compliant on-premise processing.")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Camera / Video">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    </button>
+                    <button onClick={() => askAgent(agentInput)} disabled={agentThinking} className="p-2 bg-[#00B894] text-white rounded-lg hover:bg-[#00a383] transition-colors disabled:opacity-50">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                    </button>
                   </div>
                 </div>
               </div>
