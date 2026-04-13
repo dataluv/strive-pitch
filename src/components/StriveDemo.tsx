@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { MediaInputBar } from "./MediaInput";
 import {
   getAllPatients,
   generateVitals,
@@ -488,7 +489,7 @@ function ClickableValue({
    MAIN DEMO COMPONENT
    ============================================================ */
 
-type Tab = "overview" | "labs" | "agent" | "antibiotics";
+type Tab = "overview" | "labs" | "antibiotics";
 
 export default function StriveDemo() {
   const patients = useMemo(() => getAllPatients(), []);
@@ -886,7 +887,6 @@ export default function StriveDemo() {
                 ["overview", "Clinical Overview"],
                 ["labs", "Lab Results"],
                 ["antibiotics", "Antibiotic Regimen"],
-                ["agent", "AI Agent"],
               ] as [Tab, string][]
             ).map(([key, label]) => (
               <button
@@ -1198,90 +1198,6 @@ export default function StriveDemo() {
               </>
             )}
 
-            {/* ═══════ AGENT TAB ═══════ */}
-            {activeTab === "agent" && (
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col" style={{ minHeight: 500 }}>
-                <div className="p-5 border-b border-gray-200">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-[#00B894] flex items-center justify-center">
-                      <span className="text-white font-black text-[10px]">S</span>
-                    </div>
-                    <h2 className="text-base font-bold text-gray-900">StriveMAP Clinical Agent</h2>
-                    <span className="text-[10px] bg-[#00B894]/10 text-[#00B894] px-2 py-0.5 rounded-full font-bold">RL-POWERED</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Ask questions about {patient.name} (#{patient.id}). Powered by RL policy trained on 5M+ ICU hours from 60K+ patients.
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Not an LLM. HIPAA-compliant, on-premise deployment. <a href="/agent" className="text-[#00B894] font-semibold hover:underline">Open full Agent view &rarr;</a>
-                  </p>
-                </div>
-
-                <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-gray-400">Quick:</span>
-                  {["Should I give a fluid bolus?", "What is the mortality risk?", "Vasopressor recommendation?", "Why this MAP target?"].map((q) => (
-                    <button key={q} onClick={() => askAgent(q)} className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors">{q}</button>
-                  ))}
-                </div>
-
-                <div className="flex-1 p-5 space-y-3 overflow-y-auto">
-                  {agentMessages.length === 0 && (
-                    <div className="text-center py-12">
-                      <div className="w-12 h-12 rounded-full bg-[#00B894]/10 flex items-center justify-center mx-auto mb-3">
-                        <svg className="w-6 h-6 text-[#00B894]" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" /></svg>
-                      </div>
-                      <p className="text-sm text-gray-500">Ask a clinical question about this patient</p>
-                      <p className="text-xs text-gray-400 mt-1">The agent uses reinforcement learning, not LLM, for treatment decisions</p>
-                    </div>
-                  )}
-                  {agentMessages.map((msg, i) => {
-                    const isAgent = msg.startsWith("StriveMAP Agent:");
-                    return (
-                      <div key={i} className={`flex ${isAgent ? "justify-start" : "justify-end"}`}>
-                        <div className={`max-w-[80%] p-3 rounded-lg text-sm ${isAgent ? "bg-gray-50 border border-gray-200 text-gray-700" : "bg-[#00B894] text-white"}`}>
-                          {isAgent ? msg.replace("StriveMAP Agent: ", "") : msg.replace("You: ", "")}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {agentThinking && (
-                    <div className="flex justify-start">
-                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-500">
-                        <span className="animate-pulse">Analyzing {patient.similarCount} similar trajectories...</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-4 border-t border-gray-200">
-                  <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-2 py-1.5 focus-within:border-[#00B894] focus-within:ring-1 focus-within:ring-[#00B894]/20">
-                    <button onClick={() => alert("File upload — attach patient records, imaging, or lab results. HIPAA-compliant on-premise processing.")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Upload file">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                    </button>
-                    <button onClick={() => alert("Image upload — attach X-rays, CT scans, or clinical photos. Processed on-premise.")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Upload image">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                    </button>
-                    <input
-                      type="text"
-                      value={agentInput}
-                      onChange={(e) => setAgentInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && askAgent(agentInput)}
-                      placeholder="Ask about fluid management, vasopressors, prognosis..."
-                      className="flex-1 px-2 py-1 text-sm focus:outline-none bg-transparent"
-                    />
-                    <button onClick={() => alert("Voice input — speak your clinical question. Transcription happens on-premise. No data leaves the hospital.")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Voice input">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                    </button>
-                    <button onClick={() => alert("Camera — activate bedside camera for real-time visual assessment. HIPAA-compliant on-premise processing.")} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Camera / Video">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                    </button>
-                    <button onClick={() => askAgent(agentInput)} disabled={agentThinking} className="p-2 bg-[#00B894] text-white rounded-lg hover:bg-[#00a383] transition-colors disabled:opacity-50">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="bg-white border-t border-gray-200 px-6 py-3 flex items-center justify-between text-xs text-gray-400 shrink-0">
@@ -1289,6 +1205,79 @@ export default function StriveDemo() {
             <span className="font-mono">StriveMAP v2.4.1 (c) 2026 STRIVE Health -- {patient.similarCount} similar decisions analysed</span>
           </div>
         </main>
+
+        {/* ═══════ RIGHT AGENT PANEL ═══════ */}
+        <aside className="w-80 border-l border-gray-200 bg-white flex flex-col shrink-0 overflow-hidden">
+          {/* Agent header */}
+          <div className="px-4 py-3 border-b border-gray-200 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded bg-[#00B894] flex items-center justify-center">
+                  <span className="text-white font-black text-[8px]">S</span>
+                </div>
+                <span className="text-sm font-bold text-gray-900">StriveMAP Agent</span>
+              </div>
+              <a href="/agent" className="text-[10px] text-[#00B894] font-semibold hover:underline">Full view &rarr;</a>
+            </div>
+            <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-400">
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />HIPAA</span>
+              <span>|</span>
+              <span>SOC2</span>
+              <span>|</span>
+              <span>On-Premise</span>
+              <span>|</span>
+              <span>RL Model</span>
+            </div>
+          </div>
+
+          {/* Quick actions */}
+          <div className="px-3 py-2 border-b border-gray-100 flex flex-wrap gap-1 shrink-0">
+            {["Fluid bolus?", "Mortality risk?", "Vasopressor?", "MAP target?"].map((q) => (
+              <button key={q} onClick={() => askAgent(q)} className="text-[10px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors">{q}</button>
+            ))}
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {agentMessages.length === 0 && (
+              <div className="text-center py-8">
+                <div className="w-10 h-10 rounded-full bg-[#00B894]/10 flex items-center justify-center mx-auto mb-2">
+                  <svg className="w-5 h-5 text-[#00B894]" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" /></svg>
+                </div>
+                <p className="text-xs text-gray-500">Ask about this patient</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">RL-powered, not LLM</p>
+              </div>
+            )}
+            {agentMessages.map((msg, i) => {
+              const isAgent = msg.startsWith("StriveMAP Agent:");
+              return (
+                <div key={i} className={`flex ${isAgent ? "justify-start" : "justify-end"}`}>
+                  <div className={`max-w-[90%] p-2.5 rounded-lg text-xs leading-relaxed ${isAgent ? "bg-gray-50 border border-gray-200 text-gray-700" : "bg-[#00B894] text-white"}`}>
+                    {isAgent ? msg.replace("StriveMAP Agent: ", "") : msg.replace("You: ", "")}
+                  </div>
+                </div>
+              );
+            })}
+            {agentThinking && (
+              <div className="flex justify-start">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs text-gray-500">
+                  <span className="animate-pulse">Analyzing {patient.similarCount} trajectories...</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Input */}
+          <div className="p-3 border-t border-gray-200 shrink-0">
+            <MediaInputBar
+              compact
+              disabled={agentThinking}
+              placeholder="Ask anything..."
+              onSend={(text) => askAgent(text)}
+            />
+            <p className="text-[9px] text-gray-400 text-center mt-1">RL model v2.4.1 • Not an LLM • On-premise</p>
+          </div>
+        </aside>
       </div>
     </div>
   );
