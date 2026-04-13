@@ -806,71 +806,152 @@ function Scene5_Platform({ progress }: { progress: number }) {
   );
 }
 
-function Scene6_Moat() {
+const CLINICIAN_QUOTES = [
+  { text: "The tool gives us real-time insight we simply cannot produce ourselves.", author: "Dominic Marshall", role: "ICU Fellow, Cleveland Clinic" },
+  { text: "After using STRIVE, you realize there\u2019s no going back.", author: "Jham Valenzuela", role: "ICU Clinician, Columbia University" },
+  { text: "STRIVE is not a nice-to-have, it\u2019s essential infrastructure for modern ICUs.", author: "Louis Kreitmann", role: "ICU Consultant, NHS" },
+];
+
+function LogoCard({ name, size = "normal" }: { name: string; size?: "normal" | "small" }) {
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "40px 48px" }}>
+    <div
+      style={{
+        background: "#fff",
+        border: "1px solid #e5e7eb",
+        borderRadius: 10,
+        padding: size === "small" ? "8px 14px" : "14px 20px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "var(--font-mono), 'SF Mono', 'Fira Code', monospace",
+        fontSize: size === "small" ? 11 : 13,
+        fontWeight: 700,
+        color: "#1a1f36",
+        letterSpacing: 0.8,
+        textTransform: "uppercase",
+        whiteSpace: "nowrap",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+      }}
+    >
+      {name}
+    </div>
+  );
+}
+
+function Scene6_Moat() {
+  const [quoteIdx, setQuoteIdx] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setQuoteIdx(i => (i + 1) % CLINICIAN_QUOTES.length), 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  const quote = CLINICIAN_QUOTES[quoteIdx];
+
+  return (
+    <div style={{ height: "100%", overflowY: "auto", padding: "32px 48px" }}>
       <div style={{ fontSize: 13, color: "#6366f1", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
         Why this can&apos;t be replicated
       </div>
-      <div style={{ fontSize: 28, fontWeight: 800, color: "#1a1f36", marginBottom: 32 }}>
+      <div style={{ fontSize: 28, fontWeight: 800, color: "#1a1f36", marginBottom: 24 }}>
         The STRIVE Moat
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 32 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 28 }}>
         {[
-          {
-            icon: "\ud83e\udde0",
-            title: "Not an LLM",
-            desc: "Reinforcement Learning trained on 5M+ real ICU hours. Causal reasoning, not pattern matching.",
-          },
-          {
-            icon: "\ud83c\udfe5",
-            title: "On-Premise",
-            desc: "Patient data never leaves the hospital. Full data sovereignty. No cloud dependency.",
-          },
-          {
-            icon: "\ud83d\udee1\ufe0f",
-            title: "FDA & CE Mark",
-            desc: "Regulatory clearance expected 2026. Built to clinical-grade compliance from day one.",
-          },
-          {
-            icon: "\ud83c\udfeb",
-            title: "Elite Trial Sites",
-            desc: "Cleveland Clinic + Harvard affiliated hospitals confirmed. Multi-site validation underway.",
-          },
+          { icon: "\ud83e\udde0", title: "Not an LLM", desc: "Reinforcement Learning trained on 5M+ real ICU hours. Causal reasoning, not pattern matching." },
+          { icon: "\ud83c\udfe5", title: "On-Premise", desc: "Patient data never leaves the hospital. Full data sovereignty. No cloud dependency." },
+          { icon: "\ud83d\udee1\ufe0f", title: "FDA & CE Mark", desc: "Regulatory clearance expected 2026. Built to clinical-grade compliance from day one." },
+          { icon: "\ud83c\udfeb", title: "Elite Trial Sites", desc: "Cleveland Clinic + Harvard affiliated hospitals confirmed. Multi-site validation underway." },
         ].map((item) => (
-          <div
-            key={item.title}
-            style={{
-              background: "#fff",
-              border: "1px solid #e5e7eb",
-              borderRadius: 14,
-              padding: "24px",
-              animation: "slideUp 0.5s ease-out",
-            }}
-          >
-            <div style={{ fontSize: 28, marginBottom: 8 }}>{item.icon}</div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: "#1a1f36", marginBottom: 6 }}>{item.title}</div>
-            <div style={{ fontSize: 14, color: "#6b7280", lineHeight: 1.5 }}>{item.desc}</div>
+          <div key={item.title} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "20px", animation: "slideUp 0.5s ease-out" }}>
+            <div style={{ fontSize: 24, marginBottom: 6 }}>{item.icon}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1f36", marginBottom: 4 }}>{item.title}</div>
+            <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>{item.desc}</div>
           </div>
         ))}
       </div>
 
+      {/* ── Hospital Partners ── */}
+      <div style={{ marginBottom: 28, animation: "slideUp 0.6s ease-out" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+          Trial Sites (Treating Patients in 2026)
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+          <LogoCard name="Cleveland Clinic" />
+          <LogoCard name="Harvard University / Beth Israel" />
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+          Deployment Partner
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+          <LogoCard name="UC Health" />
+          <span style={{ fontSize: 12, color: "#9ca3af", alignSelf: "center" }}>deploy + scale integration</span>
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+          Validation Studies
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+          <LogoCard name="Columbia University" />
+          <LogoCard name="NHS" />
+          <LogoCard name="Charit\u00e9 Berlin" />
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+          Backed by leaders from
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {["Moderna", "Philips", "DeepMind", "OpenAI", "Viz.ai", "Oaktree", "Merck", "Mount Sinai"].map(n => (
+            <LogoCard key={n} name={n} size="small" />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Key Stats ── */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 28, animation: "slideUp 0.7s ease-out" }}>
+        {[
+          { value: "76/78", label: "clinicians want to use STRIVE daily" },
+          { value: "$3.5M", label: "pre-seed closed" },
+          { value: "CE ~3mo", label: "FDA ~6 months" },
+          { value: "Star Award", label: "SCCM 2026" },
+        ].map(s => (
+          <div key={s.label} style={{ flex: 1, background: "#f0f0ff", border: "1px solid #e0e7ff", borderRadius: 12, padding: "14px 12px", textAlign: "center" }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#6366f1", fontFamily: "var(--font-mono), monospace" }}>{s.value}</div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Clinician Quote ── */}
+      <div
+        key={quoteIdx}
+        style={{
+          background: "#fff",
+          border: "1px solid #e0e7ff",
+          borderLeft: "4px solid #6366f1",
+          borderRadius: 12,
+          padding: "20px 24px",
+          marginBottom: 28,
+          animation: "slideUp 0.5s ease-out",
+        }}
+      >
+        <div style={{ fontSize: 15, color: "#374151", lineHeight: 1.6, fontStyle: "italic", marginBottom: 10 }}>
+          &ldquo;{quote.text}&rdquo;
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1f36" }}>{quote.author}</div>
+        <div style={{ fontSize: 12, color: "#6b7280" }}>{quote.role}</div>
+      </div>
+
+      {/* ── CTA Buttons ── */}
       <div style={{ display: "flex", gap: 12 }}>
         <Link
           href="/platform"
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            background: "#6366f1",
-            color: "#fff",
-            padding: "12px 28px",
-            borderRadius: 10,
-            fontSize: 15,
-            fontWeight: 600,
-            textDecoration: "none",
-            transition: "background 0.2s",
+            display: "inline-flex", alignItems: "center", gap: 8,
+            background: "#6366f1", color: "#fff", padding: "12px 28px",
+            borderRadius: 10, fontSize: 15, fontWeight: 600, textDecoration: "none",
           }}
         >
           Explore the Platform &rarr;
@@ -878,17 +959,9 @@ function Scene6_Moat() {
         <Link
           href="/agent"
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            background: "#f1f5f9",
-            color: "#475569",
-            padding: "12px 28px",
-            borderRadius: 10,
-            fontSize: 15,
-            fontWeight: 600,
-            textDecoration: "none",
-            transition: "background 0.2s",
+            display: "inline-flex", alignItems: "center", gap: 8,
+            background: "#f1f5f9", color: "#475569", padding: "12px 28px",
+            borderRadius: 10, fontSize: 15, fontWeight: 600, textDecoration: "none",
           }}
         >
           Try the Agent

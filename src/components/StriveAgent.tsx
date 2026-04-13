@@ -589,22 +589,37 @@ export default function StriveAgent() {
     const patientContext = `Name: ${patient.name} | ID: ${patient.id} | Age: ${patient.age}y ${patient.sex} | BMI: ${patient.bmi} | Diagnosis: ${patient.admitDiagnosis} | Sepsis Source: ${patient.sepsisSource} | Acuity: ${patient.acuity} | SOFA: ${patient.sofa}/24 (${patient.sofaComponents.map(c => `${c.name}: ${c.score}/4`).join(", ")}) | MAP: ${patient.map} mmHg | Lactate: ${patient.lactate} mmol/L | HR: ${patient.hr} | Temp: ${patient.temp}C | Creatinine: ${patient.creatinine} | Risk Score: ${patient.riskScore}% | Vasoactive: ${patient.vasoactive || "None"} | Comorbidities: ${patient.comorbidities.join(", ")} | Allergies: ${patient.allergies.join(", ")} | Antibiotics: ${patient.antibioticRegimen.map(a => `${a.name} ${a.dose} ${a.route} ${a.frequency}`).join("; ")} | Recommendation: ${patient.recommendation.rationale} | Fluid Bolus: ${patient.recommendation.fluidBolus} | MAP Target: ${patient.recommendation.mapTarget} mmHg | Vasopressor: ${patient.recommendation.vasopressor || "None"} | Similar Trajectories: ${patient.similarCount} from ${patient.similarPatients} patients`;
 
     // Convert attachments to base64 data URLs
-    const attachmentData: { type: string; name: string; data: string }[] = [];
+    const attachmentData: { type: string; name: string; data: string; transcription?: string }[] = [];
     for (const att of attachments) {
       try {
-        const arrayBuffer = await att.blob.arrayBuffer();
-        const uint8 = new Uint8Array(arrayBuffer);
-        let binary = "";
-        for (let i = 0; i < uint8.length; i++) {
-          binary += String.fromCharCode(uint8[i]);
+        if (att.type === "audio") {
+          attachmentData.push({
+            type: att.type,
+            name: att.name,
+            data: "",
+            transcription: att.transcription || "",
+          });
+        } else if (att.type === "video" && att.frameDataUrl) {
+          attachmentData.push({
+            type: att.type,
+            name: att.name,
+            data: att.frameDataUrl,
+          });
+        } else {
+          const arrayBuffer = await att.blob.arrayBuffer();
+          const uint8 = new Uint8Array(arrayBuffer);
+          let binary = "";
+          for (let i = 0; i < uint8.length; i++) {
+            binary += String.fromCharCode(uint8[i]);
+          }
+          const base64 = btoa(binary);
+          const mimeType = att.blob.type || (att.type === "image" ? "image/png" : "application/octet-stream");
+          attachmentData.push({
+            type: att.type,
+            name: att.name,
+            data: `data:${mimeType};base64,${base64}`,
+          });
         }
-        const base64 = btoa(binary);
-        const mimeType = att.blob.type || (att.type === "image" ? "image/png" : att.type === "audio" ? "audio/webm" : "video/webm");
-        attachmentData.push({
-          type: att.type,
-          name: att.name,
-          data: `data:${mimeType};base64,${base64}`,
-        });
       } catch {
         // Skip attachment if conversion fails
       }

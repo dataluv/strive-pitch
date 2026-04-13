@@ -13,6 +13,8 @@ export interface Attachment {
   blob: Blob;
   url: string; // object URL for preview
   duration?: number; // seconds, for audio/video
+  transcription?: string; // speech-to-text for audio
+  frameDataUrl?: string; // extracted frame as data URL for video
 }
 
 export interface MediaInputBarProps {
@@ -58,6 +60,11 @@ export function MediaInputBar({
   const audioChunksRef = useRef<Blob[]>([]);
   const audioTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
+
+  // Speech recognition
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const speechRecRef = useRef<any>(null);
+  const transcriptRef = useRef<string>("");
 
   // Camera / video
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -136,13 +143,15 @@ export function MediaInputBar({
     []
   );
 
-  /* ---------- Audio recording ---------- */
+  /* ---------- Audio recording with speech recognition ---------- */
   const toggleAudioRecording = useCallback(async () => {
     if (isRecordingAudio) {
       // Stop
       audioRecorderRef.current?.stop();
       audioStreamRef.current?.getTracks().forEach((t) => t.stop());
       if (audioTimerRef.current) clearInterval(audioTimerRef.current);
+      // Stop speech recognition
+      try { speechRecRef.current?.stop(); } catch { /* ignore */ }
       setIsRecordingAudio(false);
       return;
     }
@@ -154,6 +163,30 @@ export function MediaInputBar({
       const recorder = new MediaRecorder(stream);
       audioRecorderRef.current = recorder;
       audioChunksRef.current = [];
+      transcriptRef.current = "";
+
+      // Start speech recognition alongside recording
+      try {
+        const SpeechRecognition = (window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const recognition = new (SpeechRecognition as any)();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = "en-US";
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          recognition.onresult = (event: any) => {
+            let transcript = "";
+            for (let i = 0; i < event.results.length; i++) {
+              transcript += event.results[i][0].transcript;
+            }
+            transcriptRef.current = transcript;
+          };
+          recognition.onerror = () => { /* ignore speech recognition errors */ };
+          recognition.start();
+          speechRecRef.current = recognition;
+        }
+      } catch { /* speech recognition not available — continue without */ }
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
@@ -162,18 +195,21 @@ export function MediaInputBar({
       recorder.onstop = () => {
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         const dur = audioDuration;
+        const transcript = transcriptRef.current;
         setAttachments((prev) => [
           ...prev,
           {
             id: uid(),
             type: "audio",
-            name: `Recording ${fmtDuration(dur)}`,
+            name: transcript ? `"${transcript.slice(0, 40)}${transcript.length > 40 ? "..." : ""}"` : `Recording ${fmtDuration(dur)}`,
             blob,
             url: URL.createObjectURL(blob),
             duration: dur,
+            transcription: transcript || undefined,
           },
         ]);
         setAudioDuration(0);
+        transcriptRef.current = "";
       };
 
       recorder.start();
@@ -244,6 +280,41 @@ export function MediaInputBar({
 
   const toggleVideoRecording = useCallback(() => {
     if (isRecordingVideo) {
+      // Capture a frame before stopping
+      let frameDataUrl: string | undefined;
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (video && canvas) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(video, 0, 0);
+          frameDataUrl = canvas.toDataURL("image/png");
+        }
+      }
+      const capturedFrame = frameDataUrl;
+
+      // Override onstop to include frame
+      if (videoRecorderRef.current) {
+        videoRecorderRef.current.onstop = () => {
+          const blob = new Blob(videoChunksRef.current, { type: "video/webm" });
+          const dur = videoDuration;
+          setAttachments((prev) => [
+            ...prev,
+            {
+              id: uid(),
+              type: "video",
+              name: `Video ${fmtDuration(dur)}`,
+              blob,
+              url: URL.createObjectURL(blob),
+              duration: dur,
+              frameDataUrl: capturedFrame,
+            },
+          ]);
+          setVideoDuration(0);
+        };
+      }
       videoRecorderRef.current?.stop();
       if (videoTimerRef.current) clearInterval(videoTimerRef.current);
       setIsRecordingVideo(false);
