@@ -1,10 +1,32 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 
 /* ============================================================
-   PATIENT DATABASE
+   PATIENT DATABASE — 6 patients with rich clinical profiles
    ============================================================ */
+
+interface LabValue {
+  name: string;
+  value: string;
+  unit: string;
+  flag?: "high" | "low" | "critical";
+  trend?: "up" | "down" | "stable";
+}
+
+interface FluidBolusDecision {
+  mapRange: string;
+  benefit: number;
+  color: "green" | "blue" | "gray";
+  isTarget?: boolean;
+}
+
+interface SimilarDecisionSummary {
+  action: string;
+  count: number;
+  avgBenefit: number;
+  significance: "high" | "medium" | "low";
+}
 
 interface Patient {
   id: string;
@@ -40,6 +62,11 @@ interface Patient {
   matchQuality: "High" | "Medium" | "Low";
   riskScore: number;
   sepsisOnsetHour: number;
+  labs: LabValue[];
+  mapBenefits: FluidBolusDecision[];
+  similarDecisions: SimilarDecisionSummary[];
+  agentInsights: string[];
+  antibioticRegimen: { name: string; dose: string; route: string; frequency: string; started: string }[];
 }
 
 const PATIENTS: Patient[] = [
@@ -48,15 +75,15 @@ const PATIENTS: Patient[] = [
     age: 91,
     sex: "F",
     daysInHospital: 1,
-    hr: 90,
+    hr: 91,
     sbp: 98,
     dbp: 54,
-    map: 63,
+    map: 60.9,
     lactate: 2.3,
     temp: 38.4,
     wbc: 14.2,
     creatinine: 1.8,
-    urineOutput: "0 / 25 / 17 mL",
+    urineOutput: "0 mL / 25 mL / 17 mL",
     crystalloids: 100,
     fluidBalance: -2762,
     comorbidities: ["Congestive heart failure"],
@@ -76,13 +103,47 @@ const PATIENTS: Patient[] = [
       vasopressor: null,
       mapTarget: "70-75",
       rationale:
-        "Patient has negative fluid balance and congestive heart failure. Among 500 similar decisions from 89 patients, withholding fluid bolus was associated with higher expected benefit. MAP target 70-75 mmHg achievable with current trajectory.",
+        "Patient has negative fluid balance and congestive heart failure. Among 500 similar decisions from 89 patients, withholding fluid bolus was associated with higher expected benefit (78.2 vs 73.4). MAP target 70-75 mmHg is optimal based on reinforcement learning policy.",
     },
     similarCount: 500,
     similarPatients: 89,
     matchQuality: "High",
     riskScore: 34,
     sepsisOnsetHour: 8,
+    labs: [
+      { name: "Hemoglobin", value: "9.8", unit: "g/dL", flag: "low", trend: "down" },
+      { name: "Platelets", value: "142", unit: "K/μL", trend: "stable" },
+      { name: "BUN", value: "38", unit: "mg/dL", flag: "high", trend: "up" },
+      { name: "pH", value: "7.31", unit: "", flag: "low", trend: "down" },
+      { name: "pCO2", value: "32", unit: "mmHg", trend: "stable" },
+      { name: "Bicarbonate", value: "18", unit: "mEq/L", flag: "low", trend: "down" },
+      { name: "Procalcitonin", value: "4.2", unit: "ng/mL", flag: "high", trend: "up" },
+      { name: "CRP", value: "148", unit: "mg/L", flag: "high", trend: "up" },
+    ],
+    mapBenefits: [
+      { mapRange: "<55", benefit: 59.2, color: "gray" },
+      { mapRange: "55-60", benefit: 67.8, color: "gray" },
+      { mapRange: "60-65", benefit: 74.1, color: "blue" },
+      { mapRange: "65-70", benefit: 76.5, color: "blue" },
+      { mapRange: "70-75", benefit: 78.2, color: "green", isTarget: true },
+      { mapRange: "75-80", benefit: 72.4, color: "blue" },
+      { mapRange: ">80", benefit: 64.3, color: "gray" },
+    ],
+    similarDecisions: [
+      { action: "No fluid bolus given", count: 312, avgBenefit: 78.2, significance: "high" },
+      { action: "250 mL crystalloid bolus", count: 145, avgBenefit: 73.4, significance: "medium" },
+      { action: "500 mL crystalloid bolus", count: 43, avgBenefit: 64.1, significance: "low" },
+    ],
+    agentInsights: [
+      "CHF history increases risk of fluid overload — withholding bolus preferred in 62% of similar cases",
+      "Current MAP 60.9 is below target range. Monitor for natural recovery before vasopressor initiation",
+      "Negative fluid balance (-2762 mL) is appropriate given cardiac history — do not attempt to correct",
+      "Procalcitonin trend rising — confirm antibiotic coverage is adequate for urinary source",
+    ],
+    antibioticRegimen: [
+      { name: "Piperacillin-Tazobactam", dose: "4.5g", route: "IV", frequency: "q8h", started: "4h ago" },
+      { name: "Vancomycin", dose: "1g", route: "IV", frequency: "q12h", started: "4h ago" },
+    ],
   },
   {
     id: "2847291_S12",
@@ -97,7 +158,7 @@ const PATIENTS: Patient[] = [
     temp: 39.6,
     wbc: 22.8,
     creatinine: 2.9,
-    urineOutput: "0 / 0 / 10 mL",
+    urineOutput: "0 mL / 0 mL / 10 mL",
     crystalloids: 2500,
     fluidBalance: 1840,
     comorbidities: ["Type 2 diabetes", "Chronic kidney disease Stage III"],
@@ -117,13 +178,48 @@ const PATIENTS: Patient[] = [
       vasopressor: "Increase norepinephrine to 0.18 mcg/kg/min",
       mapTarget: "65-70",
       rationale:
-        "MAP critically low at 55 mmHg despite vasopressors. 250 mL crystalloid bolus recommended based on 342 similar trajectories. Consider vasopressor dose escalation if MAP remains <65 after 30 min.",
+        "MAP critically low at 55 mmHg despite vasopressors. 250 mL crystalloid bolus recommended based on 342 similar trajectories. Expected benefit 81.7 vs 64.3 for withholding. Consider vasopressor dose escalation if MAP remains <65 after 30 min.",
     },
     similarCount: 342,
     similarPatients: 67,
     matchQuality: "High",
     riskScore: 72,
     sepsisOnsetHour: 4,
+    labs: [
+      { name: "Hemoglobin", value: "11.2", unit: "g/dL", trend: "stable" },
+      { name: "Platelets", value: "88", unit: "K/μL", flag: "low", trend: "down" },
+      { name: "BUN", value: "52", unit: "mg/dL", flag: "high", trend: "up" },
+      { name: "pH", value: "7.24", unit: "", flag: "critical", trend: "down" },
+      { name: "pCO2", value: "28", unit: "mmHg", flag: "low", trend: "down" },
+      { name: "Bicarbonate", value: "14", unit: "mEq/L", flag: "critical", trend: "down" },
+      { name: "Procalcitonin", value: "18.5", unit: "ng/mL", flag: "critical", trend: "up" },
+      { name: "CRP", value: "285", unit: "mg/L", flag: "critical", trend: "up" },
+    ],
+    mapBenefits: [
+      { mapRange: "<55", benefit: 42.1, color: "gray" },
+      { mapRange: "55-60", benefit: 58.3, color: "gray" },
+      { mapRange: "60-65", benefit: 72.6, color: "blue" },
+      { mapRange: "65-70", benefit: 81.7, color: "green", isTarget: true },
+      { mapRange: "70-75", benefit: 76.4, color: "blue" },
+      { mapRange: "75-80", benefit: 68.2, color: "gray" },
+      { mapRange: ">80", benefit: 55.1, color: "gray" },
+    ],
+    similarDecisions: [
+      { action: "250 mL crystalloid bolus", count: 198, avgBenefit: 81.7, significance: "high" },
+      { action: "No fluid bolus given", count: 89, avgBenefit: 64.3, significance: "medium" },
+      { action: "Vasopressor escalation only", count: 55, avgBenefit: 71.2, significance: "medium" },
+    ],
+    agentInsights: [
+      "CRITICAL: MAP 55 mmHg — below minimum safe threshold. Immediate intervention required",
+      "Lactate 5.1 with rising trend indicates tissue hypoperfusion — fluid challenge is appropriate",
+      "CKD Stage III: monitor for fluid tolerance. Recommend CRRT evaluation if oliguric >6h post-bolus",
+      "Thrombocytopenia trend (88K) — consider DIC workup if platelets continue to decline",
+      "Vasopressor dose below 0.2 mcg/kg/min — room for escalation before adding second agent",
+    ],
+    antibioticRegimen: [
+      { name: "Meropenem", dose: "1g", route: "IV", frequency: "q8h", started: "2d ago" },
+      { name: "Levofloxacin", dose: "750mg", route: "IV", frequency: "q24h", started: "2d ago" },
+    ],
   },
   {
     id: "3019284_S23",
@@ -138,7 +234,7 @@ const PATIENTS: Patient[] = [
     temp: 38.9,
     wbc: 16.5,
     creatinine: 1.2,
-    urineOutput: "30 / 45 / 25 mL",
+    urineOutput: "30 mL / 45 mL / 25 mL",
     crystalloids: 500,
     fluidBalance: -420,
     comorbidities: ["Hypertension"],
@@ -158,13 +254,47 @@ const PATIENTS: Patient[] = [
       vasopressor: null,
       mapTarget: "75-80",
       rationale:
-        "Early sepsis with rising lactate but preserved MAP. 250 mL bolus recommended. 478 similar cases show fluid-responsive pattern at this stage. Source control (ERCP) is priority.",
+        "Early sepsis with rising lactate but preserved MAP. 250 mL bolus recommended. 478 similar cases show fluid-responsive pattern at this stage. Source control (ERCP) is priority — notify interventional team.",
     },
     similarCount: 478,
     similarPatients: 102,
     matchQuality: "High",
     riskScore: 28,
     sepsisOnsetHour: 6,
+    labs: [
+      { name: "Hemoglobin", value: "12.1", unit: "g/dL", trend: "stable" },
+      { name: "Platelets", value: "205", unit: "K/μL", trend: "stable" },
+      { name: "BUN", value: "22", unit: "mg/dL", trend: "stable" },
+      { name: "pH", value: "7.35", unit: "", trend: "stable" },
+      { name: "pCO2", value: "38", unit: "mmHg", trend: "stable" },
+      { name: "Bicarbonate", value: "22", unit: "mEq/L", trend: "stable" },
+      { name: "Total Bilirubin", value: "4.8", unit: "mg/dL", flag: "high", trend: "up" },
+      { name: "Lipase", value: "320", unit: "U/L", flag: "high", trend: "up" },
+    ],
+    mapBenefits: [
+      { mapRange: "<55", benefit: 51.3, color: "gray" },
+      { mapRange: "55-60", benefit: 62.7, color: "gray" },
+      { mapRange: "60-65", benefit: 71.4, color: "blue" },
+      { mapRange: "65-70", benefit: 76.8, color: "blue" },
+      { mapRange: "70-75", benefit: 80.3, color: "blue" },
+      { mapRange: "75-80", benefit: 82.1, color: "green", isTarget: true },
+      { mapRange: ">80", benefit: 74.5, color: "blue" },
+    ],
+    similarDecisions: [
+      { action: "250 mL crystalloid bolus", count: 289, avgBenefit: 82.1, significance: "high" },
+      { action: "No fluid bolus given", count: 134, avgBenefit: 71.4, significance: "medium" },
+      { action: "500 mL crystalloid bolus", count: 55, avgBenefit: 78.9, significance: "medium" },
+    ],
+    agentInsights: [
+      "Early sepsis presentation — fluid responsiveness likely based on clinical trajectory",
+      "Source control is critical: cholangitis requires ERCP. Recommend GI/IR consult within 2h",
+      "Rising bilirubin (4.8) and lipase (320) support biliary source — confirm imaging",
+      "Low SOFA (5) with early intervention window — aggressive early treatment improves outcomes 23%",
+    ],
+    antibioticRegimen: [
+      { name: "Piperacillin-Tazobactam", dose: "4.5g", route: "IV", frequency: "q8h", started: "2h ago" },
+      { name: "Metronidazole", dose: "500mg", route: "IV", frequency: "q8h", started: "2h ago" },
+    ],
   },
   {
     id: "4182736_S41",
@@ -179,7 +309,7 @@ const PATIENTS: Patient[] = [
     temp: 37.2,
     wbc: 9.8,
     creatinine: 1.4,
-    urineOutput: "60 / 55 / 70 mL",
+    urineOutput: "60 mL / 55 mL / 70 mL",
     crystalloids: 0,
     fluidBalance: -180,
     comorbidities: ["Atrial fibrillation", "COPD"],
@@ -199,13 +329,198 @@ const PATIENTS: Patient[] = [
       vasopressor: null,
       mapTarget: "80-90",
       rationale:
-        "Patient recovering. Haemodynamics stable, lactate normalising. No fluid or vasopressor intervention indicated. Continue current antibiotic regimen and monitor for 24h before step-down.",
+        "Patient recovering well. Haemodynamics stable, lactate normalising at 1.1. No fluid or vasopressor intervention indicated. 621 similar trajectories support conservative management. Consider step-down in 24h.",
     },
     similarCount: 621,
     similarPatients: 134,
     matchQuality: "High",
     riskScore: 8,
     sepsisOnsetHour: 2,
+    labs: [
+      { name: "Hemoglobin", value: "13.4", unit: "g/dL", trend: "stable" },
+      { name: "Platelets", value: "198", unit: "K/μL", trend: "up" },
+      { name: "BUN", value: "18", unit: "mg/dL", trend: "down" },
+      { name: "pH", value: "7.41", unit: "", trend: "stable" },
+      { name: "pCO2", value: "40", unit: "mmHg", trend: "stable" },
+      { name: "Bicarbonate", value: "24", unit: "mEq/L", trend: "stable" },
+      { name: "Procalcitonin", value: "0.8", unit: "ng/mL", trend: "down" },
+      { name: "CRP", value: "42", unit: "mg/L", trend: "down" },
+    ],
+    mapBenefits: [
+      { mapRange: "<55", benefit: 38.4, color: "gray" },
+      { mapRange: "55-60", benefit: 52.1, color: "gray" },
+      { mapRange: "60-65", benefit: 64.5, color: "gray" },
+      { mapRange: "65-70", benefit: 72.8, color: "blue" },
+      { mapRange: "70-75", benefit: 81.3, color: "blue" },
+      { mapRange: "75-80", benefit: 86.7, color: "blue" },
+      { mapRange: ">80", benefit: 88.9, color: "green", isTarget: true },
+    ],
+    similarDecisions: [
+      { action: "No fluid bolus given", count: 498, avgBenefit: 88.9, significance: "high" },
+      { action: "250 mL crystalloid bolus", count: 98, avgBenefit: 65.2, significance: "low" },
+      { action: "Oral fluids only", count: 25, avgBenefit: 84.1, significance: "medium" },
+    ],
+    agentInsights: [
+      "Patient on recovery trajectory — all inflammatory markers trending down",
+      "SOFA score decreased from 7 to 2 over 5 days — consider ICU discharge planning",
+      "Atrial fibrillation: maintain rate control, avoid excessive fluid loading",
+      "Step-down criteria met: MAP >80, lactate <2, adequate urine output, improving WBC",
+    ],
+    antibioticRegimen: [
+      { name: "Cefazolin", dose: "2g", route: "IV", frequency: "q8h", started: "5d ago" },
+    ],
+  },
+  {
+    id: "5291048_S58",
+    age: 43,
+    sex: "M",
+    daysInHospital: 2,
+    hr: 125,
+    sbp: 88,
+    dbp: 52,
+    map: 58,
+    lactate: 6.8,
+    temp: 40.1,
+    wbc: 28.4,
+    creatinine: 3.4,
+    urineOutput: "0 mL / 0 mL / 5 mL",
+    crystalloids: 4000,
+    fluidBalance: 3200,
+    comorbidities: ["IV drug use", "Hepatitis C", "HIV (on ART)"],
+    sepsisSource: "Endocarditis — MRSA",
+    sofa: 14,
+    interventions: [
+      { name: "Mechanical ventilation", active: true },
+      { name: "Vasopressors", active: true },
+      { name: "Circulatory support", active: false },
+      { name: "CRRT", active: true },
+    ],
+    vasoactive: "Norepinephrine 0.25 mcg/kg/min + Vasopressin 0.04 U/min",
+    recommendation: {
+      fluidBolus: "withhold",
+      bolusExpectedBenefit: 52.1,
+      noBolusExpectedBenefit: 68.7,
+      vasopressor: "Add epinephrine 0.05 mcg/kg/min as third agent",
+      mapTarget: "65-70",
+      rationale:
+        "Refractory septic shock with multi-organ failure. Fluid overloaded (+3200 mL). Withholding bolus preferred (68.7 vs 52.1). Third vasopressor agent recommended. Consider cardiothoracic surgery consult for valve replacement if hemodynamically stable.",
+    },
+    similarCount: 187,
+    similarPatients: 34,
+    matchQuality: "Medium",
+    riskScore: 89,
+    sepsisOnsetHour: 3,
+    labs: [
+      { name: "Hemoglobin", value: "8.2", unit: "g/dL", flag: "low", trend: "down" },
+      { name: "Platelets", value: "42", unit: "K/μL", flag: "critical", trend: "down" },
+      { name: "BUN", value: "78", unit: "mg/dL", flag: "critical", trend: "up" },
+      { name: "pH", value: "7.18", unit: "", flag: "critical", trend: "down" },
+      { name: "pCO2", value: "24", unit: "mmHg", flag: "low", trend: "down" },
+      { name: "Bicarbonate", value: "10", unit: "mEq/L", flag: "critical", trend: "down" },
+      { name: "Procalcitonin", value: "42.8", unit: "ng/mL", flag: "critical", trend: "up" },
+      { name: "Troponin", value: "2.4", unit: "ng/mL", flag: "critical", trend: "up" },
+    ],
+    mapBenefits: [
+      { mapRange: "<55", benefit: 32.1, color: "gray" },
+      { mapRange: "55-60", benefit: 48.3, color: "gray" },
+      { mapRange: "60-65", benefit: 61.2, color: "blue" },
+      { mapRange: "65-70", benefit: 68.7, color: "green", isTarget: true },
+      { mapRange: "70-75", benefit: 64.1, color: "blue" },
+      { mapRange: "75-80", benefit: 55.8, color: "gray" },
+      { mapRange: ">80", benefit: 44.2, color: "gray" },
+    ],
+    similarDecisions: [
+      { action: "No fluid bolus given", count: 112, avgBenefit: 68.7, significance: "high" },
+      { action: "Vasopressor escalation", count: 48, avgBenefit: 65.3, significance: "high" },
+      { action: "250 mL crystalloid bolus", count: 27, avgBenefit: 52.1, significance: "low" },
+    ],
+    agentInsights: [
+      "CRITICAL: Refractory shock on 2 vasopressors — consider stress-dose hydrocortisone",
+      "Severe thrombocytopenia (42K) with DIC picture — check fibrinogen and D-dimer",
+      "Troponin elevated at 2.4 — likely septic cardiomyopathy. Echo recommended urgently",
+      "CRRT initiated appropriately for AKI with fluid overload. Target negative balance",
+      "Endocarditis: CT surgery consult for valve replacement timing assessment",
+    ],
+    antibioticRegimen: [
+      { name: "Vancomycin", dose: "1.5g", route: "IV", frequency: "Per levels", started: "2d ago" },
+      { name: "Daptomycin", dose: "8mg/kg", route: "IV", frequency: "q24h", started: "1d ago" },
+      { name: "Rifampin", dose: "300mg", route: "IV", frequency: "q8h", started: "1d ago" },
+    ],
+  },
+  {
+    id: "6384921_S33",
+    age: 62,
+    sex: "F",
+    daysInHospital: 2,
+    hr: 95,
+    sbp: 105,
+    dbp: 58,
+    map: 67,
+    lactate: 3.2,
+    temp: 38.7,
+    wbc: 18.1,
+    creatinine: 1.6,
+    urineOutput: "15 mL / 20 mL / 30 mL",
+    crystalloids: 1500,
+    fluidBalance: 680,
+    comorbidities: ["Obesity (BMI 38)", "Type 2 diabetes", "Obstructive sleep apnea"],
+    sepsisSource: "Pneumonia — community-acquired",
+    sofa: 7,
+    interventions: [
+      { name: "Mechanical ventilation", active: false },
+      { name: "Vasopressors", active: false },
+      { name: "Circulatory support", active: false },
+      { name: "CRRT", active: false },
+    ],
+    vasoactive: null,
+    recommendation: {
+      fluidBolus: "give",
+      bolusExpectedBenefit: 79.4,
+      noBolusExpectedBenefit: 68.1,
+      vasopressor: null,
+      mapTarget: "70-75",
+      rationale:
+        "Borderline hypotension with adequate urine output. 250 mL bolus recommended — 412 similar trajectories show fluid responsiveness at this MAP range. If MAP does not improve to >70 after 500 mL total, initiate norepinephrine.",
+    },
+    similarCount: 412,
+    similarPatients: 91,
+    matchQuality: "High",
+    riskScore: 45,
+    sepsisOnsetHour: 5,
+    labs: [
+      { name: "Hemoglobin", value: "10.8", unit: "g/dL", flag: "low", trend: "stable" },
+      { name: "Platelets", value: "165", unit: "K/μL", trend: "stable" },
+      { name: "BUN", value: "32", unit: "mg/dL", flag: "high", trend: "up" },
+      { name: "pH", value: "7.33", unit: "", flag: "low", trend: "down" },
+      { name: "pCO2", value: "35", unit: "mmHg", trend: "stable" },
+      { name: "Bicarbonate", value: "19", unit: "mEq/L", flag: "low", trend: "down" },
+      { name: "Procalcitonin", value: "8.4", unit: "ng/mL", flag: "high", trend: "up" },
+      { name: "HbA1c", value: "9.2", unit: "%", flag: "high", trend: "stable" },
+    ],
+    mapBenefits: [
+      { mapRange: "<55", benefit: 44.8, color: "gray" },
+      { mapRange: "55-60", benefit: 56.2, color: "gray" },
+      { mapRange: "60-65", benefit: 68.1, color: "blue" },
+      { mapRange: "65-70", benefit: 75.4, color: "blue" },
+      { mapRange: "70-75", benefit: 79.4, color: "green", isTarget: true },
+      { mapRange: "75-80", benefit: 74.8, color: "blue" },
+      { mapRange: ">80", benefit: 66.2, color: "gray" },
+    ],
+    similarDecisions: [
+      { action: "250 mL crystalloid bolus", count: 245, avgBenefit: 79.4, significance: "high" },
+      { action: "No fluid bolus given", count: 118, avgBenefit: 68.1, significance: "medium" },
+      { action: "Vasopressor initiation", count: 49, avgBenefit: 72.3, significance: "medium" },
+    ],
+    agentInsights: [
+      "Obesity (BMI 38) may mask clinical signs — recommend arterial line for accurate BP monitoring",
+      "HbA1c 9.2% — poor glycemic control increases infection risk. Initiate insulin drip if glucose >180",
+      "Community-acquired pneumonia: consider Legionella and pneumococcal urinary antigens",
+      "OSA: if intubation required, anticipate difficult airway — alert anesthesia preemptively",
+    ],
+    antibioticRegimen: [
+      { name: "Ceftriaxone", dose: "2g", route: "IV", frequency: "q24h", started: "1d ago" },
+      { name: "Azithromycin", dose: "500mg", route: "IV", frequency: "q24h", started: "1d ago" },
+    ],
   },
 ];
 
@@ -219,6 +534,8 @@ interface VitalPoint {
   sbp: number;
   dbp: number;
   hr: number;
+  phenylephrine: number;
+  fluidBolus: boolean;
 }
 
 function generateVitals(patient: Patient): VitalPoint[] {
@@ -249,39 +566,44 @@ function generateVitals(patient: Patient): VitalPoint[] {
       hr = patient.hr + 15 * severity + rand() * 10 - 5;
     }
 
+    const phenylephrine = patient.vasoactive && i >= patient.sepsisOnsetHour + 2
+      ? 0.5 + rand() * 1.5
+      : 0;
+    const fluidBolus = (i === patient.sepsisOnsetHour + 1 || i === patient.sepsisOnsetHour + 4) && patient.recommendation.fluidBolus === "give";
+
     points.push({
       time: label,
       map: Math.round(map),
       sbp: Math.round(map * 1.45 + rand() * 8),
       dbp: Math.round(map * 0.78 + rand() * 4),
       hr: Math.round(hr),
+      phenylephrine: Math.round(phenylephrine * 100) / 100,
+      fluidBolus,
     });
   }
   return points;
 }
 
 /* ============================================================
-   MAP BENEFIT DATA
+   VITALS CHART — Light theme, matching original design
    ============================================================ */
 
-const MAP_RANGES = [
-  { range: "<55", benefit: 59.2 },
-  { range: "55-60", benefit: 67.8 },
-  { range: "60-65", benefit: 74.1 },
-  { range: "65-70", benefit: 76.5 },
-  { range: "70-75", benefit: 78.2 },
-  { range: "75-80", benefit: 72.4 },
-  { range: ">80", benefit: 64.3 },
-];
-
-/* ============================================================
-   VITALS CHART
-   ============================================================ */
-
-function VitalsChart({ data, sepsisIndex }: { data: VitalPoint[]; sepsisIndex: number }) {
+function VitalsChart({
+  data,
+  sepsisIndex,
+  timeRange,
+}: {
+  data: VitalPoint[];
+  sepsisIndex: number;
+  timeRange: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; data: VitalPoint } | null>(null);
 
-  useEffect(() => {
+  const slicedData = useMemo(() => data.slice(0, timeRange), [data, timeRange]);
+
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -301,6 +623,8 @@ function VitalsChart({ data, sepsisIndex }: { data: VitalPoint[]; sepsisIndex: n
     const yMax = 160, yMin = 30;
 
     ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);
 
     // Grid
     ctx.strokeStyle = "#f1f5f9";
@@ -324,18 +648,18 @@ function VitalsChart({ data, sepsisIndex }: { data: VitalPoint[]; sepsisIndex: n
 
     // X labels
     ctx.textAlign = "center";
-    const step = Math.max(1, Math.floor(data.length / 10));
+    const step = Math.max(1, Math.floor(slicedData.length / 10));
     ctx.fillStyle = "#94a3b8";
-    for (let i = 0; i < data.length; i += step) {
-      const x = padL + (chartW / (data.length - 1)) * i;
-      ctx.fillText(data[i].time, x, h - 10);
+    for (let i = 0; i < slicedData.length; i += step) {
+      const x = padL + (chartW / (slicedData.length - 1)) * i;
+      ctx.fillText(slicedData[i].time, x, h - 10);
     }
 
     const toY = (v: number) => padT + ((yMax - v) / (yMax - yMin)) * chartH;
-    const toX = (i: number) => padL + (chartW / (data.length - 1)) * i;
+    const toX = (i: number) => padL + (chartW / (slicedData.length - 1)) * i;
 
-    // Sepsis onset
-    if (sepsisIndex < data.length) {
+    // Sepsis onset line
+    if (sepsisIndex < slicedData.length) {
       const sx = toX(sepsisIndex);
       ctx.save();
       ctx.strokeStyle = "#ef4444";
@@ -352,29 +676,76 @@ function VitalsChart({ data, sepsisIndex }: { data: VitalPoint[]; sepsisIndex: n
       ctx.restore();
     }
 
+    // Fluid bolus markers
+    for (let i = 0; i < slicedData.length; i++) {
+      if (slicedData[i].fluidBolus) {
+        const fx = toX(i);
+        ctx.save();
+        ctx.fillStyle = "#3b82f6";
+        ctx.beginPath();
+        ctx.moveTo(fx, padT + chartH + 8);
+        ctx.lineTo(fx - 5, padT + chartH + 16);
+        ctx.lineTo(fx + 5, padT + chartH + 16);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // Phenylephrine area (purple, subtle)
+    const hasPhenyl = slicedData.some(d => d.phenylephrine > 0);
+    if (hasPhenyl) {
+      ctx.fillStyle = "rgba(168, 85, 247, 0.08)";
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < slicedData.length; i++) {
+        const x = toX(i);
+        const phenylY = toY(yMin + (slicedData[i].phenylephrine / 2) * (yMax - yMin));
+        if (!started) { ctx.moveTo(x, padT + chartH); started = true; }
+        ctx.lineTo(x, phenylY);
+      }
+      for (let i = slicedData.length - 1; i >= 0; i--) {
+        ctx.lineTo(toX(i), padT + chartH);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Phenylephrine line
+      ctx.strokeStyle = "#a855f7";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < slicedData.length; i++) {
+        const x = toX(i);
+        const phenylY = toY(yMin + (slicedData[i].phenylephrine / 2) * (yMax - yMin));
+        if (i === 0) ctx.moveTo(x, phenylY);
+        else ctx.lineTo(x, phenylY);
+      }
+      ctx.stroke();
+    }
+
     // SBP/DBP fill
     ctx.fillStyle = "rgba(59, 130, 246, 0.06)";
     ctx.beginPath();
-    for (let i = 0; i < data.length; i++) {
+    for (let i = 0; i < slicedData.length; i++) {
       const x = toX(i);
-      if (i === 0) ctx.moveTo(x, toY(data[i].sbp));
-      else ctx.lineTo(x, toY(data[i].sbp));
+      if (i === 0) ctx.moveTo(x, toY(slicedData[i].sbp));
+      else ctx.lineTo(x, toY(slicedData[i].sbp));
     }
-    for (let i = data.length - 1; i >= 0; i--) {
-      ctx.lineTo(toX(i), toY(data[i].dbp));
+    for (let i = slicedData.length - 1; i >= 0; i--) {
+      ctx.lineTo(toX(i), toY(slicedData[i].dbp));
     }
     ctx.closePath();
     ctx.fill();
 
-    // Draw lines
+    // Draw lines helper
     const drawLine = (key: keyof VitalPoint, color: string, width: number, dash = false) => {
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
       ctx.setLineDash(dash ? [4, 4] : []);
       ctx.beginPath();
-      for (let i = 0; i < data.length; i++) {
+      for (let i = 0; i < slicedData.length; i++) {
         const x = toX(i);
-        const y = toY(data[i][key] as number);
+        const y = toY(slicedData[i][key] as number);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -384,305 +755,255 @@ function VitalsChart({ data, sepsisIndex }: { data: VitalPoint[]; sepsisIndex: n
 
     const drawDots = (key: keyof VitalPoint, color: string, r: number) => {
       ctx.fillStyle = color;
-      for (let i = 0; i < data.length; i++) {
+      for (let i = 0; i < slicedData.length; i++) {
         ctx.beginPath();
-        ctx.arc(toX(i), toY(data[i][key] as number), r, 0, Math.PI * 2);
+        ctx.arc(toX(i), toY(slicedData[i][key] as number), r, 0, Math.PI * 2);
         ctx.fill();
       }
     };
 
     drawLine("sbp", "#93c5fd", 1, true);
     drawLine("dbp", "#93c5fd", 1, true);
+    drawLine("hr", "#22c55e", 2);
     drawLine("map", "#ef4444", 2.5);
     drawDots("map", "#ef4444", 3.5);
-    drawLine("hr", "#22c55e", 2);
-    drawDots("hr", "#22c55e", 2.5);
-  }, [data, sepsisIndex]);
 
-  return <canvas ref={canvasRef} className="w-full" style={{ height: 300 }} />;
-}
+    // Hover highlight
+    if (hoveredIndex !== null && hoveredIndex < slicedData.length) {
+      const hx = toX(hoveredIndex);
+      ctx.strokeStyle = "rgba(0,0,0,0.1)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(hx, padT);
+      ctx.lineTo(hx, padT + chartH);
+      ctx.stroke();
+    }
+  }, [slicedData, sepsisIndex, hoveredIndex]);
 
-/* ============================================================
-   RISK GAUGE
-   ============================================================ */
+  useEffect(() => { draw(); }, [draw]);
 
-function RiskGauge({ score }: { score: number }) {
-  const color =
-    score > 60 ? "#ef4444" : score > 30 ? "#f59e0b" : "#22c55e";
-  const label = score > 60 ? "HIGH" : score > 30 ? "MODERATE" : "LOW";
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const padL = 48, padR = 20;
+    const chartW = rect.width - padL - padR;
+    const idx = Math.round(((x - padL) / chartW) * (slicedData.length - 1));
+    if (idx >= 0 && idx < slicedData.length) {
+      setHoveredIndex(idx);
+      setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top, data: slicedData[idx] });
+    } else {
+      setHoveredIndex(null);
+      setTooltip(null);
+    }
+  };
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="relative w-16 h-16">
-        <svg className="w-16 h-16 -rotate-90" viewBox="0 0 36 36">
-          <circle cx="18" cy="18" r="15" fill="none" stroke="#f1f5f9" strokeWidth="3" />
-          <circle
-            cx="18"
-            cy="18"
-            r="15"
-            fill="none"
-            stroke={color}
-            strokeWidth="3"
-            strokeDasharray={`${score} ${100 - score}`}
-            strokeLinecap="round"
-          />
-        </svg>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-sm font-bold" style={{ color }}>
-            {score}
-          </span>
+    <div className="relative">
+      <canvas
+        ref={canvasRef}
+        className="w-full cursor-crosshair"
+        style={{ height: 300 }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => { setHoveredIndex(null); setTooltip(null); }}
+      />
+      {tooltip && (
+        <div
+          className="absolute bg-white border border-gray-200 rounded-lg shadow-lg p-3 pointer-events-none z-10"
+          style={{ left: Math.min(tooltip.x, 600), top: tooltip.y - 100 }}
+        >
+          <p className="text-xs font-semibold text-gray-700 mb-1">{tooltip.data.time}</p>
+          <div className="space-y-0.5 text-[11px]">
+            <p><span className="text-red-500 font-semibold">MAP:</span> {tooltip.data.map} mmHg</p>
+            <p><span className="text-blue-400 font-semibold">SBP/DBP:</span> {tooltip.data.sbp}/{tooltip.data.dbp}</p>
+            <p><span className="text-green-500 font-semibold">HR:</span> {tooltip.data.hr} bpm</p>
+            {tooltip.data.phenylephrine > 0 && (
+              <p><span className="text-purple-500 font-semibold">Phenylephrine:</span> {tooltip.data.phenylephrine} mcg/kg/min</p>
+            )}
+            {tooltip.data.fluidBolus && (
+              <p className="text-blue-600 font-semibold">Fluid Bolus (≥250 mL)</p>
+            )}
+          </div>
         </div>
-      </div>
-      <div>
-        <p className="text-[10px] text-gray-400 uppercase tracking-wider">Mortality Risk</p>
-        <p className="text-sm font-bold" style={{ color }}>
-          {label}
-        </p>
-      </div>
+      )}
     </div>
   );
 }
 
 /* ============================================================
-   MAIN DEMO
+   MAIN DEMO COMPONENT
    ============================================================ */
+
+type Tab = "overview" | "labs" | "agent" | "antibiotics";
 
 export default function StriveDemo() {
   const [selectedPatientIdx, setSelectedPatientIdx] = useState(0);
   const [timeRange, setTimeRange] = useState<6 | 12 | 24>(24);
   const [showPatientList, setShowPatientList] = useState(false);
-  const [showCohort, setShowCohort] = useState(false);
-  const [relativeScale, setRelativeScale] = useState(true);
-  const [activeAnalysis, setActiveAnalysis] = useState<"fluid" | "vasopressor" | "antibiotics">(
-    "fluid"
-  );
-  const [liveTime, setLiveTime] = useState(new Date());
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [agentThinking, setAgentThinking] = useState(false);
+  const [agentMessages, setAgentMessages] = useState<string[]>([]);
+  const [agentInput, setAgentInput] = useState("");
+  const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
 
   const patient = PATIENTS[selectedPatientIdx];
   const vitals = useMemo(() => generateVitals(patient), [patient]);
 
-  // Live clock + vitals jitter
-  const [jitterHR, setJitterHR] = useState(0);
-  const [jitterMAP, setJitterMAP] = useState(0);
-  const [jitterLactate, setJitterLactate] = useState(0);
-  const [jitterTemp, setJitterTemp] = useState(0);
-
+  // Reset agent messages on patient change
   useEffect(() => {
-    const iv = setInterval(() => {
-      setLiveTime(new Date());
-      setJitterHR(Math.round((Math.random() - 0.5) * 4));
-      setJitterMAP(Math.round((Math.random() - 0.5) * 3));
-      setJitterLactate(Math.round((Math.random() - 0.5) * 0.3 * 10) / 10);
-      setJitterTemp(Math.round((Math.random() - 0.5) * 0.2 * 10) / 10);
-    }, 2500);
-    return () => clearInterval(iv);
-  }, []);
+    setAgentMessages([]);
+    setActiveTab("overview");
+  }, [selectedPatientIdx]);
 
-  const liveHR = patient.hr + jitterHR;
-  const liveMAP = patient.map + jitterMAP;
-  const liveLactate = Math.max(0.5, patient.lactate + jitterLactate);
-  const liveTemp = patient.temp + jitterTemp;
-  const bestRange = patient.recommendation.mapTarget;
+  // Simulate agent thinking
+  const askAgent = useCallback((question: string) => {
+    if (!question.trim()) return;
+    setAgentMessages(prev => [...prev, `You: ${question}`]);
+    setAgentInput("");
+    setAgentThinking(true);
+
+    const responses: Record<string, string> = {
+      default: `Based on analysis of ${patient.similarCount} similar trajectories from ${patient.similarPatients} patients: ${patient.recommendation.rationale}`,
+      fluid: `Fluid recommendation for Patient #${patient.id}: ${patient.recommendation.fluidBolus === "give" ? "Administer 250 mL crystalloid bolus" : "Withhold fluid bolus"}. Expected benefit: ${Math.max(patient.recommendation.bolusExpectedBenefit, patient.recommendation.noBolusExpectedBenefit)}. ${patient.recommendation.rationale}`,
+      mortality: `Current mortality risk score: ${patient.riskScore}%. SOFA score ${patient.sofa} places this patient in the ${patient.sofa > 10 ? "high" : patient.sofa > 6 ? "moderate" : "low"} risk category. Key risk factors: ${patient.comorbidities.join(", ")}. ${patient.labs.filter(l => l.flag === "critical").map(l => `${l.name} (${l.value}) is critically abnormal`).join(". ")}.`,
+      vasopressor: patient.vasoactive
+        ? `Current vasopressor: ${patient.vasoactive}. ${patient.recommendation.vasopressor || "No dose change recommended at this time."}. MAP target ${patient.recommendation.mapTarget} mmHg based on RL policy trained on 5M+ ICU hours.`
+        : `No vasopressors currently active. ${patient.recommendation.vasopressor || "Vasopressor initiation not recommended at this time. MAP is currently " + patient.map + " mmHg, within acceptable range for this patient's trajectory."}`,
+    };
+
+    const lowerQ = question.toLowerCase();
+    let response = responses.default;
+    if (lowerQ.includes("fluid") || lowerQ.includes("bolus")) response = responses.fluid;
+    else if (lowerQ.includes("mortality") || lowerQ.includes("risk") || lowerQ.includes("prognosis")) response = responses.mortality;
+    else if (lowerQ.includes("vasopressor") || lowerQ.includes("norepinephrine") || lowerQ.includes("pressor")) response = responses.vasopressor;
+
+    setTimeout(() => {
+      setAgentMessages(prev => [...prev, `StriveMAP Agent: ${response}`]);
+      setAgentThinking(false);
+    }, 1500);
+  }, [patient]);
 
   return (
-    <div className="h-screen flex flex-col bg-[#0f1117] text-white overflow-hidden">
+    <div className="h-screen flex flex-col bg-white text-gray-900 overflow-hidden">
       {/* ═══════════════ TOP BAR ═══════════════ */}
-      <header className="h-12 bg-[#161822] border-b border-[#2a2d3a] px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-[#00B894] flex items-center justify-center">
-              <span className="text-white font-black text-[10px]">S</span>
-            </div>
-            <span className="font-bold text-sm tracking-tight">StriveMAP</span>
-            <span className="text-[10px] text-gray-500 font-mono ml-1">v2.4.1</span>
+      <header className="h-12 bg-white border-b border-gray-200 px-5 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-7 h-7 rounded-lg bg-[#00B894] flex items-center justify-center">
+            <span className="text-white font-black text-xs">S</span>
           </div>
-          <div className="w-px h-5 bg-[#2a2d3a]" />
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#00B894] animate-pulse" />
-            <span className="text-[10px] text-[#00B894] font-mono">LIVE</span>
-          </div>
+          <span className="font-bold text-base tracking-tight text-gray-900">Strive</span>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-gray-500 font-mono">
-            {liveTime.toLocaleTimeString()} UTC
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-500">
+            Patient Row ID{" "}
+            <span className="font-mono font-bold text-gray-900">{patient.id}</span>
           </span>
-          <div className="w-px h-5 bg-[#2a2d3a]" />
-          <span className="text-[11px] text-gray-400">ICU — Bed 12</span>
-          <div className="w-px h-5 bg-[#2a2d3a]" />
-          <div className="relative">
-            <button
-              onClick={() => setShowPatientList(!showPatientList)}
-              className="flex items-center gap-2 px-3 py-1 bg-[#00B894] rounded text-xs font-semibold hover:bg-[#00a383] transition-colors"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              Select Patient
-            </button>
-            {showPatientList && (
-              <div className="absolute right-0 top-8 w-80 bg-[#1e2030] border border-[#2a2d3a] rounded-lg shadow-2xl z-50 overflow-hidden">
-                <div className="p-3 border-b border-[#2a2d3a]">
-                  <input
-                    type="text"
-                    placeholder="Search by ID, age, condition..."
-                    className="w-full bg-[#161822] border border-[#2a2d3a] rounded px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00B894]"
-                  />
-                </div>
-                {PATIENTS.map((p, i) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setSelectedPatientIdx(i);
-                      setShowPatientList(false);
-                    }}
-                    className={`w-full text-left px-3 py-2.5 text-xs hover:bg-[#252840] transition-colors border-b border-[#2a2d3a] last:border-b-0 ${
-                      i === selectedPatientIdx ? "bg-[#00B894]/10" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
+          <a
+            href="/pitch"
+            className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+          >
+            Pitch
+          </a>
+          <button
+            onClick={() => setShowPatientList(!showPatientList)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00B894] text-white rounded-lg text-sm font-semibold hover:bg-[#00a383] transition-colors"
+          >
+            <span className="w-2 h-2 rounded-full bg-white/40 animate-pulse" />
+            Live Demo
+          </button>
+
+          {/* Patient dropdown */}
+          {showPatientList && (
+            <div className="absolute right-5 top-12 w-96 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
+              <div className="p-3 border-b border-gray-100 bg-gray-50">
+                <p className="text-xs font-semibold text-gray-500 mb-2">SELECT PATIENT</p>
+              </div>
+              {PATIENTS.map((p, i) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setSelectedPatientIdx(i); setShowPatientList(false); }}
+                  className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0 ${i === selectedPatientIdx ? "bg-[#00B894]/5" : ""}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2.5 h-2.5 rounded-full ${p.riskScore > 60 ? "bg-red-500" : p.riskScore > 30 ? "bg-amber-500" : "bg-green-500"}`} />
                       <div>
-                        <span className="font-mono font-semibold text-white">#{p.id}</span>
-                        <span className="text-gray-500 ml-2">
-                          {p.age}y {p.sex} — Day {p.daysInHospital}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500">{p.sepsisSource}</span>
-                        <div
-                          className={`w-2 h-2 rounded-full ${
-                            p.riskScore > 60
-                              ? "bg-red-500"
-                              : p.riskScore > 30
-                              ? "bg-yellow-500"
-                              : "bg-green-500"
-                          }`}
-                        />
+                        <span className="font-mono font-bold text-sm">{p.id}</span>
+                        <span className="text-gray-400 ml-2 text-sm">{p.age}y {p.sex} — Day {p.daysInHospital}</span>
                       </div>
                     </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+                    <div className="text-right">
+                      <span className="text-xs text-gray-400">{p.sepsisSource}</span>
+                      <p className="text-xs font-semibold" style={{ color: p.riskScore > 60 ? "#ef4444" : p.riskScore > 30 ? "#f59e0b" : "#22c55e" }}>
+                        SOFA {p.sofa} • Risk {p.riskScore}%
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">
         {/* ═══════════════ LEFT SIDEBAR ═══════════════ */}
-        <aside className="w-72 bg-[#161822] border-r border-[#2a2d3a] flex flex-col overflow-y-auto">
-          {/* Patient header */}
-          <div className="p-4 border-b border-[#2a2d3a]">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-[#252840] flex items-center justify-center">
-                  <span className="text-xs font-bold text-[#00B894]">
-                    {patient.sex}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-xs font-mono text-gray-400">#{patient.id}</p>
-                  <p className="text-sm font-semibold">
-                    {patient.age}y {patient.sex} — Day {patient.daysInHospital}
-                  </p>
-                </div>
-              </div>
-              <div
-                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                  patient.sofa > 10
-                    ? "bg-red-500/20 text-red-400"
-                    : patient.sofa > 6
-                    ? "bg-yellow-500/20 text-yellow-400"
-                    : "bg-green-500/20 text-green-400"
-                }`}
-              >
-                SOFA {patient.sofa}
-              </div>
-            </div>
-            <RiskGauge score={patient.riskScore} />
-          </div>
-
+        <aside className="w-72 border-r border-gray-200 flex flex-col overflow-y-auto bg-white">
           {/* Similar decisions */}
-          <div className="p-4 border-b border-[#2a2d3a]">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                Similar Decisions
-              </h3>
-              <span
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                  patient.matchQuality === "High"
-                    ? "bg-[#00B894]/20 text-[#00B894]"
-                    : "bg-yellow-500/20 text-yellow-400"
-                }`}
-              >
+          <div className="p-4 border-b border-gray-100">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-bold text-gray-900">Similar decisions</h3>
+              <span className={`text-xs font-bold ${patient.matchQuality === "High" ? "text-[#00B894]" : "text-amber-500"}`}>
                 {patient.matchQuality} Match
               </span>
             </div>
-            <p className="text-xs text-gray-500">
-              {patient.similarCount} decisions from {patient.similarPatients} patients
+            <p className="text-xs text-gray-500 mb-2">
+              {patient.similarCount} decisions from {patient.similarPatients} different patients
             </p>
-            <div className="w-full bg-[#252840] rounded-full h-1.5 mt-2">
+            <div className="w-full bg-gray-100 rounded-full h-2">
               <div
-                className="bg-[#00B894] h-1.5 rounded-full transition-all"
-                style={{
-                  width: `${Math.min(100, (patient.similarCount / 600) * 100)}%`,
-                }}
+                className="bg-[#00B894] h-2 rounded-full transition-all"
+                style={{ width: `${Math.min(100, (patient.similarCount / 650) * 100)}%` }}
               />
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">
+              {patient.similarCount}+ of 500 decisions found
+            </p>
+          </div>
+
+          {/* Patient info */}
+          <div className="p-4 border-b border-gray-100">
+            <div className="flex items-center gap-2 mb-3">
+              <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <div>
+                <p className="text-xs text-gray-500">ID #{patient.id} •</p>
+                <p className="text-sm font-bold">{patient.age} Years • {patient.sex}</p>
+                <p className="text-xs text-gray-400">{patient.daysInHospital} day{patient.daysInHospital > 1 ? "s" : ""} in hospital</p>
+              </div>
             </div>
           </div>
 
-          {/* Live vitals */}
-          <div className="p-4 border-b border-[#2a2d3a]">
-            <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Live Observations
+          {/* Current observations */}
+          <div className="p-4 border-b border-gray-100">
+            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3">
+              Current Observations and Interventions
             </h3>
             <div className="space-y-2">
               {[
-                {
-                  label: "Heart Rate",
-                  value: `${liveHR} bpm`,
-                  critical: liveHR > 110,
-                },
-                {
-                  label: "MAP",
-                  value: `${liveMAP} mmHg`,
-                  critical: liveMAP < 65,
-                },
-                {
-                  label: "BP",
-                  value: `${patient.sbp}/${patient.dbp} mmHg`,
-                  critical: false,
-                },
-                {
-                  label: "Lactate",
-                  value: `${liveLactate.toFixed(1)} mmol/L`,
-                  critical: liveLactate > 4,
-                },
-                {
-                  label: "Temperature",
-                  value: `${liveTemp.toFixed(1)} °C`,
-                  critical: liveTemp > 38.5,
-                },
-                { label: "WBC", value: `${patient.wbc} K/μL`, critical: patient.wbc > 15 },
-                {
-                  label: "Creatinine",
-                  value: `${patient.creatinine} mg/dL`,
-                  critical: patient.creatinine > 2,
-                },
-                { label: "Urine Output (3h)", value: patient.urineOutput, critical: false },
-                {
-                  label: "Fluid Balance (24h)",
-                  value: `${patient.fluidBalance > 0 ? "+" : ""}${patient.fluidBalance} mL`,
-                  critical: Math.abs(patient.fluidBalance) > 2000,
-                },
+                { label: "Heart Rate", value: `${patient.hr} bpm`, bold: true },
+                { label: "BP", value: `${patient.sbp}/${patient.dbp} (${patient.map.toFixed(1)}) mmHg`, bold: true },
+                { label: "Lactate", value: `${patient.lactate} mmol/L`, bold: true },
+                { label: "Urine Output (last 3h)", value: patient.urineOutput, bold: false },
+                { label: "Crystalloids", value: `${patient.crystalloids} mL`, bold: true },
+                { label: "Fluid Balance (last 24h)", value: `${patient.fluidBalance > 0 ? "+" : ""}${patient.fluidBalance} mL`, bold: true, critical: Math.abs(patient.fluidBalance) > 2000 },
               ].map((v) => (
-                <div key={v.label} className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500">{v.label}</span>
-                  <span
-                    className={`font-mono font-semibold ${
-                      v.critical ? "text-red-400" : "text-white"
-                    }`}
-                  >
+                <div key={v.label} className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">{v.label}</span>
+                  <span className={`font-mono ${v.bold ? "font-bold" : ""} ${v.critical ? "text-red-500" : "text-gray-900"}`}>
                     {v.value}
                   </span>
                 </div>
@@ -690,354 +1011,489 @@ export default function StriveDemo() {
             </div>
           </div>
 
+          {/* Vasoactive agents */}
+          <div className="p-4 border-b border-gray-100">
+            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+              Vasoactive Agents
+            </h3>
+            <p className="text-sm text-gray-400 italic">
+              {patient.vasoactive || "No vasoactive agents"}
+            </p>
+          </div>
+
           {/* Interventions */}
-          <div className="p-4 border-b border-[#2a2d3a]">
-            <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Interventions
+          <div className="p-4 border-b border-gray-100">
+            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3">
+              Current Interventions
             </h3>
             <div className="space-y-2">
               {patient.interventions.map((int) => (
                 <div key={int.name} className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">{int.name}</span>
-                  <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-                      int.active
-                        ? "bg-[#00B894]/20 text-[#00B894]"
-                        : "bg-[#252840] text-gray-600"
-                    }`}
-                  >
-                    {int.active ? "Active" : "Off"}
+                  <span className="text-sm text-gray-600">{int.name}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${int.active ? "bg-[#00B894]/10 text-[#00B894]" : "bg-gray-100 text-gray-400"}`}>
+                    {int.active ? "Active" : "Inactive"}
                   </span>
                 </div>
               ))}
             </div>
-            {patient.vasoactive && (
-              <div className="mt-3 p-2 bg-yellow-500/10 rounded border border-yellow-500/20">
-                <p className="text-[10px] text-yellow-400 font-semibold">Vasoactive Agent</p>
-                <p className="text-xs text-yellow-300">{patient.vasoactive}</p>
-              </div>
-            )}
           </div>
 
-          {/* Comorbidities + source */}
+          {/* Comorbidities */}
           <div className="p-4">
-            <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
-              Sepsis Source
-            </h3>
-            <p className="text-xs text-white mb-3">{patient.sepsisSource}</p>
-            <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
-              Comorbidities
+            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+              Key Comorbidities
             </h3>
             {patient.comorbidities.map((c) => (
-              <p key={c} className="text-xs text-gray-400">
-                {c}
-              </p>
+              <p key={c} className="text-sm text-gray-600">{c}</p>
             ))}
           </div>
         </aside>
 
         {/* ═══════════════ MAIN CONTENT ═══════════════ */}
-        <main className="flex-1 flex flex-col overflow-y-auto p-5 gap-5">
-          {/* Row 1: Vitals Chart */}
-          <div className="bg-[#161822] rounded-xl border border-[#2a2d3a] p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-sm font-bold">Patient Haemodynamics</h2>
-                <p className="text-[10px] text-gray-500 mt-0.5">
-                  Continuous monitoring — {vitals.length} data points
-                </p>
-              </div>
-              <div className="flex items-center gap-1">
-                {([6, 12, 24] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTimeRange(t)}
-                    className={`px-3 py-1 text-[11px] font-semibold rounded transition-colors ${
-                      timeRange === t
-                        ? "bg-[#00B894] text-white"
-                        : "bg-[#252840] text-gray-400 hover:bg-[#2a2d3a]"
-                    }`}
-                  >
-                    {t}h
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* Legend */}
-            <div className="flex items-center gap-5 mb-3 text-[10px] text-gray-500">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2.5 h-0.5 bg-red-500 rounded" />
-                MAP
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2.5 h-0.5 bg-blue-400 rounded opacity-50" />
-                SBP/DBP
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2.5 h-0.5 bg-green-500 rounded" />
-                Heart Rate
-              </div>
-            </div>
-            <VitalsChart
-              data={vitals.slice(0, timeRange)}
-              sepsisIndex={patient.sepsisOnsetHour}
-            />
+        <main className="flex-1 flex flex-col overflow-y-auto bg-gray-50">
+          {/* Tab navigation */}
+          <div className="bg-white border-b border-gray-200 px-6 flex items-center gap-1 shrink-0">
+            {(
+              [
+                ["overview", "Clinical Overview"],
+                ["labs", "Lab Results"],
+                ["antibiotics", "Antibiotic Regimen"],
+                ["agent", "AI Agent"],
+              ] as [Tab, string][]
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === key
+                    ? "border-[#00B894] text-[#00B894]"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {label}
+                {key === "agent" && (
+                  <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-[#00B894]/10 text-[#00B894] rounded-full font-bold">
+                    NEW
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
 
-          {/* Row 2: AI Recommendation + Analysis */}
-          <div className="grid grid-cols-5 gap-5">
-            {/* AI Recommendation — left 3 cols */}
-            <div className="col-span-3 bg-[#161822] rounded-xl border border-[#2a2d3a] p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-5 h-5 rounded bg-[#00B894]/20 flex items-center justify-center">
-                  <svg className="w-3 h-3 text-[#00B894]" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1z" />
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z" clipRule="evenodd" />
-                  </svg>
+          <div className="flex-1 p-6 space-y-5 overflow-y-auto">
+            {/* ═══════════════ OVERVIEW TAB ═══════════════ */}
+            {activeTab === "overview" && (
+              <>
+                {/* Vitals Chart */}
+                <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-base font-bold text-gray-900">
+                        Patient Haemodynamics During Hospital Stay
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {([6, 12, 24] as const).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setTimeRange(t)}
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                            timeRange === t
+                              ? "bg-[#00B894] text-white"
+                              : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                          }`}
+                        >
+                          {t}h
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Legend */}
+                  <div className="flex items-center gap-6 mb-3 text-xs text-gray-500">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-0.5 bg-red-500 rounded" />
+                      MAP
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-0.5 bg-purple-400 rounded" />
+                      Phenylephrine (mcg/kg/min)
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-px bg-blue-400 rounded" style={{ borderTop: "2px dashed #93c5fd" }} />
+                      Fluid Bolus (≥250 mL)
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-px" style={{ borderTop: "2px dashed #93c5fd" }} />
+                      SBP/DBP
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-0.5 bg-green-500 rounded" />
+                      Heart Rate
+                    </div>
+                  </div>
+                  <VitalsChart data={vitals} sepsisIndex={patient.sepsisOnsetHour} timeRange={timeRange} />
                 </div>
-                <h2 className="text-sm font-bold">AI Treatment Recommendation</h2>
-                <span className="text-[10px] text-[#00B894] font-mono ml-auto">
-                  Updated {Math.floor(Math.random() * 5) + 1}s ago
-                </span>
-              </div>
 
-              {/* Analysis tabs */}
-              <div className="flex gap-1 mb-4">
-                {(
-                  [
-                    ["fluid", "Fluid Management"],
-                    ["vasopressor", "Vasopressors"],
-                    ["antibiotics", "Antibiotics"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => setActiveAnalysis(key)}
-                    className={`px-3 py-1.5 text-[11px] font-semibold rounded transition-colors ${
-                      activeAnalysis === key
-                        ? "bg-[#00B894] text-white"
-                        : "bg-[#252840] text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {activeAnalysis === "fluid" && (
-                <div>
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div
-                      className={`p-4 rounded-lg border ${
-                        patient.recommendation.fluidBolus === "give"
-                          ? "bg-blue-500/10 border-blue-500/30"
-                          : "bg-[#1e2030] border-[#2a2d3a]"
-                      }`}
-                    >
-                      <p className="text-[10px] text-gray-400 mb-1">Give fluid bolus</p>
-                      <p className="text-2xl font-bold text-blue-400">
-                        {patient.recommendation.bolusExpectedBenefit}
-                      </p>
-                      <p className="text-[10px] text-gray-500">Expected Benefit</p>
+                {/* Expected Benefit Analysis */}
+                <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                  <h2 className="text-base font-bold text-gray-900 mb-1">
+                    Expected Benefit – Mean Arterial Pressure &amp; Fluid Bolus
+                  </h2>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Mean Arterial Pressure observed in similar patients
+                  </p>
+                  {/* Legend */}
+                  <div className="flex items-center gap-5 mb-4 text-xs text-gray-500">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#00B894]" />
+                      greatest Expected Benefit seen in at least 10% of the decisions
                     </div>
-                    <div
-                      className={`p-4 rounded-lg border ${
-                        patient.recommendation.fluidBolus === "withhold"
-                          ? "bg-[#00B894]/10 border-[#00B894]/30"
-                          : "bg-[#1e2030] border-[#2a2d3a]"
-                      }`}
-                    >
-                      <p className="text-[10px] text-gray-400 mb-1">Withhold fluid bolus</p>
-                      <p className="text-2xl font-bold text-[#00B894]">
-                        {patient.recommendation.noBolusExpectedBenefit}
-                      </p>
-                      <p className="text-[10px] text-gray-500">Expected Benefit</p>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
+                      a sufficient number of decisions supporting MAP range
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-gray-300" />
+                      not enough decisions to support left MAP range
                     </div>
                   </div>
 
-                  <div className="p-3 bg-[#1e2030] rounded-lg border border-[#2a2d3a] mb-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[10px] uppercase tracking-wider text-gray-500">
-                        Recommendation
-                      </span>
-                      <span
-                        className={`text-xs font-bold ${
-                          patient.recommendation.fluidBolus === "give"
-                            ? "text-blue-400"
-                            : "text-[#00B894]"
-                        }`}
-                      >
-                        {patient.recommendation.fluidBolus === "give"
-                          ? "Administer 250 mL crystalloid bolus"
-                          : "Do not give a bolus"}
-                      </span>
+                  {/* MAP Benefit Chart */}
+                  <div>
+                    <p className="text-xs text-gray-500 mb-3">Expected Benefit</p>
+                    <div className="flex items-end gap-3 h-40 mb-2 px-4">
+                      {patient.mapBenefits.map((d) => {
+                        const barColor = d.color === "green" ? "#00B894" : d.color === "blue" ? "#60a5fa" : "#d1d5db";
+                        const barH = (d.benefit / 100) * 140;
+                        return (
+                          <div key={d.mapRange} className="flex-1 flex flex-col items-center justify-end gap-1">
+                            <span className="text-xs font-bold text-gray-700">{d.benefit.toFixed(1)}</span>
+                            <div className="w-full flex justify-center">
+                              <div
+                                className="w-1 rounded-t transition-all relative group"
+                                style={{ height: barH, backgroundColor: barColor }}
+                              >
+                                <div className="absolute -left-3 -right-3 top-0 bottom-0" style={{ backgroundColor: barColor, borderRadius: "2px 2px 0 0" }}>
+                                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-1 rounded-full" style={{ backgroundColor: barColor }} />
+                                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-1 rounded-full" style={{ backgroundColor: barColor }} />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <p className="text-[11px] text-gray-400 leading-relaxed">
-                      {patient.recommendation.rationale}
-                    </p>
+                    <div className="flex gap-3 px-4">
+                      {patient.mapBenefits.map((d) => (
+                        <div
+                          key={d.mapRange}
+                          className={`flex-1 text-center text-xs ${d.isTarget ? "font-bold text-[#00B894]" : "text-gray-500"}`}
+                        >
+                          {d.isTarget ? `[${d.mapRange}]` : d.mapRange}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-center text-xs text-gray-400 mt-2">MAP (mmHg)</p>
                   </div>
+                </div>
 
-                  {/* Horizontal benefit bars */}
+                {/* Fluid Bolus Analysis of similar decisions */}
+                <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                  <h2 className="text-base font-bold text-gray-900 mb-4">
+                    Fluid Bolus Analysis of similar decisions
+                  </h2>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase">Summary</th>
+                        <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase">Treatment Expected Benefit</th>
+                        <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase">Significance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {patient.similarDecisions.map((d) => (
+                        <tr key={d.action} className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer">
+                          <td className="py-3 text-gray-700">
+                            {d.action}
+                            <span className="text-gray-400 ml-2">({d.count} cases)</span>
+                          </td>
+                          <td className="py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-24 bg-gray-100 rounded-full h-2">
+                                <div
+                                  className="h-2 rounded-full transition-all"
+                                  style={{
+                                    width: `${d.avgBenefit}%`,
+                                    backgroundColor: d.significance === "high" ? "#00B894" : d.significance === "medium" ? "#60a5fa" : "#d1d5db",
+                                  }}
+                                />
+                              </div>
+                              <span className="font-mono font-bold w-12 text-right">{d.avgBenefit.toFixed(1)}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 text-right">
+                            <span className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                              d.significance === "high" ? "text-amber-500" : d.significance === "medium" ? "text-amber-400" : "text-gray-400"
+                            }`}>
+                              {d.significance === "high" ? "🟡🟡" : d.significance === "medium" ? "🟡" : "—"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* AI Insights */}
+                <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-5 h-5 rounded bg-[#00B894]/10 flex items-center justify-center">
+                      <svg className="w-3 h-3 text-[#00B894]" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1z" />
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <h2 className="text-base font-bold text-gray-900">StriveMAP Clinical Insights</h2>
+                    <span className="text-[10px] bg-[#00B894]/10 text-[#00B894] px-2 py-0.5 rounded-full font-bold">
+                      RL-POWERED
+                    </span>
+                  </div>
                   <div className="space-y-2">
-                    <div>
-                      <div className="flex justify-between text-[10px] mb-1">
-                        <span className="text-gray-500">Had a fluid bolus</span>
-                        <span className="text-blue-400 font-mono">
-                          {patient.recommendation.bolusExpectedBenefit}
-                        </span>
-                      </div>
-                      <div className="w-full bg-[#252840] rounded-full h-2">
-                        <div
-                          className="bg-blue-500 h-2 rounded-full transition-all duration-700"
-                          style={{
-                            width: `${patient.recommendation.bolusExpectedBenefit}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-[10px] mb-1">
-                        <span className="text-gray-500">No fluid bolus</span>
-                        <span className="text-[#00B894] font-mono">
-                          {patient.recommendation.noBolusExpectedBenefit}
-                        </span>
-                      </div>
-                      <div className="w-full bg-[#252840] rounded-full h-2">
-                        <div
-                          className="bg-[#00B894] h-2 rounded-full transition-all duration-700"
-                          style={{
-                            width: `${patient.recommendation.noBolusExpectedBenefit}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeAnalysis === "vasopressor" && (
-                <div>
-                  <div className="p-4 rounded-lg bg-[#1e2030] border border-[#2a2d3a] mb-4">
-                    <p className="text-[10px] text-gray-500 mb-1">Current Status</p>
-                    <p className="text-sm font-semibold">
-                      {patient.vasoactive || "No vasopressors active"}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-[#1e2030] rounded-lg border border-[#2a2d3a]">
-                    <p className="text-[10px] text-gray-500 mb-1">Recommendation</p>
-                    <p className="text-sm font-semibold text-[#00B894]">
-                      {patient.recommendation.vasopressor ||
-                        "No vasopressor initiation recommended at this time"}
-                    </p>
-                    <p className="text-[11px] text-gray-400 mt-2">
-                      MAP target: {patient.recommendation.mapTarget} mmHg based on{" "}
-                      {patient.similarCount} similar decision trajectories.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {activeAnalysis === "antibiotics" && (
-                <div>
-                  <div className="p-4 rounded-lg bg-[#1e2030] border border-[#2a2d3a] mb-4">
-                    <p className="text-[10px] text-gray-500 mb-1">Sepsis Source</p>
-                    <p className="text-sm font-semibold">{patient.sepsisSource}</p>
-                  </div>
-                  <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
-                    <p className="text-[10px] text-yellow-400 font-semibold mb-1">
-                      Time-Critical Alert
-                    </p>
-                    <p className="text-xs text-yellow-300">
-                      Each hour delay in appropriate antibiotics is associated with 7.6% increase in
-                      mortality. Ensure blood cultures obtained and empiric antibiotics administered
-                      within 1 hour of sepsis recognition.
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Right 2 cols — MAP Target + Stats */}
-            <div className="col-span-2 flex flex-col gap-5">
-              {/* MAP Target Analysis */}
-              <div className="bg-[#161822] rounded-xl border border-[#2a2d3a] p-5 flex-1">
-                <h3 className="text-sm font-bold mb-1">MAP Target Analysis</h3>
-                <p className="text-[10px] text-gray-500 mb-4">
-                  Expected Benefit by MAP range (mmHg)
-                </p>
-                <div className="flex items-end gap-1 h-28 mb-2">
-                  {MAP_RANGES.map((d) => {
-                    const isTarget = d.range === bestRange || d.range === `[${bestRange}]`;
-                    const barH = (d.benefit / 100) * 100;
-                    return (
-                      <div
-                        key={d.range}
-                        className="flex-1 flex flex-col items-center justify-end"
+                    {patient.agentInsights.map((insight, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setExpandedInsight(expandedInsight === i ? null : i)}
+                        className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors border border-gray-100"
                       >
-                        <span className="text-[9px] text-gray-500 mb-1">
-                          {d.benefit.toFixed(0)}
-                        </span>
-                        <div
-                          className="w-full rounded-t transition-all"
-                          style={{
-                            height: barH,
-                            backgroundColor: isTarget ? "#00B894" : "#3b82f6",
-                            opacity: isTarget ? 1 : 0.5,
-                          }}
-                        />
+                        <div className="flex items-start gap-2">
+                          <span className={`text-xs mt-0.5 ${insight.startsWith("CRITICAL") ? "text-red-500" : "text-[#00B894]"}`}>
+                            {insight.startsWith("CRITICAL") ? "⚠" : "→"}
+                          </span>
+                          <p className={`text-sm ${insight.startsWith("CRITICAL") ? "text-red-700 font-semibold" : "text-gray-700"}`}>
+                            {insight}
+                          </p>
+                        </div>
+                        {expandedInsight === i && (
+                          <p className="text-xs text-gray-500 mt-2 ml-5">
+                            Based on {patient.similarCount} similar patient trajectories from {patient.similarPatients} patients.
+                            Confidence: {patient.matchQuality === "High" ? "95%" : patient.matchQuality === "Medium" ? "82%" : "68%"}.
+                            Model: RL policy v2.4 trained on 5M+ ICU hours.
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ═══════════════ LABS TAB ═══════════════ */}
+            {activeTab === "labs" && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                <h2 className="text-base font-bold text-gray-900 mb-4">Laboratory Results</h2>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase">Test</th>
+                      <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase">Value</th>
+                      <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase">Unit</th>
+                      <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase">Flag</th>
+                      <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase">Trend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {patient.labs.map((lab) => (
+                      <tr key={lab.name} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <td className="py-3 text-gray-700 font-medium">{lab.name}</td>
+                        <td className={`py-3 text-right font-mono font-bold ${lab.flag === "critical" ? "text-red-600" : lab.flag ? "text-amber-600" : "text-gray-900"}`}>
+                          {lab.value}
+                        </td>
+                        <td className="py-3 text-right text-gray-400">{lab.unit}</td>
+                        <td className="py-3 text-right">
+                          {lab.flag && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                              lab.flag === "critical" ? "bg-red-100 text-red-600" : lab.flag === "high" ? "bg-amber-100 text-amber-600" : "bg-blue-100 text-blue-600"
+                            }`}>
+                              {lab.flag.toUpperCase()}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 text-right">
+                          <span className={`text-sm ${lab.trend === "up" ? "text-red-500" : lab.trend === "down" ? "text-blue-500" : "text-gray-400"}`}>
+                            {lab.trend === "up" ? "↑" : lab.trend === "down" ? "↓" : "→"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {/* Additional vitals */}
+                <div className="mt-6 grid grid-cols-3 gap-4">
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-xs text-gray-500">Temperature</p>
+                    <p className={`text-xl font-bold ${patient.temp > 38.5 ? "text-red-500" : "text-gray-900"}`}>{patient.temp}°C</p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-xs text-gray-500">WBC</p>
+                    <p className={`text-xl font-bold ${patient.wbc > 15 ? "text-amber-500" : "text-gray-900"}`}>{patient.wbc} K/μL</p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-xs text-gray-500">Creatinine</p>
+                    <p className={`text-xl font-bold ${patient.creatinine > 2 ? "text-red-500" : "text-gray-900"}`}>{patient.creatinine} mg/dL</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ═══════════════ ANTIBIOTICS TAB ═══════════════ */}
+            {activeTab === "antibiotics" && (
+              <>
+                <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                  <h2 className="text-base font-bold text-gray-900 mb-1">Antibiotic Regimen</h2>
+                  <p className="text-xs text-gray-500 mb-4">Source: {patient.sepsisSource}</p>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase">Medication</th>
+                        <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase">Dose</th>
+                        <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase">Route</th>
+                        <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase">Frequency</th>
+                        <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase">Started</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {patient.antibioticRegimen.map((abx) => (
+                        <tr key={abx.name} className="border-b border-gray-100">
+                          <td className="py-3 font-medium text-gray-900">{abx.name}</td>
+                          <td className="py-3 font-mono text-gray-700">{abx.dose}</td>
+                          <td className="py-3 text-gray-700">{abx.route}</td>
+                          <td className="py-3 text-gray-700">{abx.frequency}</td>
+                          <td className="py-3 text-gray-500">{abx.started}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="bg-amber-50 rounded-xl border border-amber-200 p-5">
+                  <div className="flex items-start gap-3">
+                    <span className="text-amber-500 text-lg">⏱</span>
+                    <div>
+                      <p className="text-sm font-bold text-amber-700 mb-1">Time-Critical Alert</p>
+                      <p className="text-sm text-amber-600">
+                        Each hour delay in appropriate antibiotics is associated with 7.6% increase in
+                        mortality. Ensure blood cultures obtained and empiric antibiotics administered
+                        within 1 hour of sepsis recognition.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ═══════════════ AGENT TAB ═══════════════ */}
+            {activeTab === "agent" && (
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col" style={{ minHeight: 500 }}>
+                <div className="p-5 border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-[#00B894] flex items-center justify-center">
+                      <span className="text-white font-black text-[10px]">S</span>
+                    </div>
+                    <h2 className="text-base font-bold text-gray-900">StriveMAP Clinical Agent</h2>
+                    <span className="text-[10px] bg-[#00B894]/10 text-[#00B894] px-2 py-0.5 rounded-full font-bold">
+                      BETA
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Ask questions about patient #{patient.id}. Powered by RL policy trained on 5M+ ICU hours from 60K+ patients.
+                  </p>
+                </div>
+
+                {/* Quick actions */}
+                <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-400">Quick:</span>
+                  {[
+                    "Should I give a fluid bolus?",
+                    "What is the mortality risk?",
+                    "Vasopressor recommendation?",
+                    "Why this MAP target?",
+                  ].map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => askAgent(q)}
+                      className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Messages */}
+                <div className="flex-1 p-5 space-y-3 overflow-y-auto">
+                  {agentMessages.length === 0 && (
+                    <div className="text-center py-12">
+                      <div className="w-12 h-12 rounded-full bg-[#00B894]/10 flex items-center justify-center mx-auto mb-3">
+                        <svg className="w-6 h-6 text-[#00B894]" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <p className="text-sm text-gray-500">Ask a clinical question about this patient</p>
+                      <p className="text-xs text-gray-400 mt-1">The agent uses reinforcement learning, not LLM, for treatment decisions</p>
+                    </div>
+                  )}
+                  {agentMessages.map((msg, i) => {
+                    const isAgent = msg.startsWith("StriveMAP Agent:");
+                    return (
+                      <div key={i} className={`flex ${isAgent ? "justify-start" : "justify-end"}`}>
+                        <div className={`max-w-[80%] p-3 rounded-lg text-sm ${
+                          isAgent
+                            ? "bg-gray-50 border border-gray-200 text-gray-700"
+                            : "bg-[#00B894] text-white"
+                        }`}>
+                          {isAgent ? msg.replace("StriveMAP Agent: ", "") : msg.replace("You: ", "")}
+                        </div>
                       </div>
                     );
                   })}
-                </div>
-                <div className="flex gap-1">
-                  {MAP_RANGES.map((d) => (
-                    <div
-                      key={d.range}
-                      className="flex-1 text-center text-[8px] text-gray-600"
-                    >
-                      {d.range}
+                  {agentThinking && (
+                    <div className="flex justify-start">
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-500">
+                        <span className="animate-pulse">Analyzing {patient.similarCount} similar trajectories...</span>
+                      </div>
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
 
-              {/* Quick stats */}
-              <div className="bg-[#161822] rounded-xl border border-[#2a2d3a] p-5">
-                <h3 className="text-sm font-bold mb-3">Model Performance</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 bg-[#1e2030] rounded-lg">
-                    <p className="text-[10px] text-gray-500">Training Data</p>
-                    <p className="text-lg font-bold text-white">5M</p>
-                    <p className="text-[10px] text-gray-500">ICU hours</p>
-                  </div>
-                  <div className="p-3 bg-[#1e2030] rounded-lg">
-                    <p className="text-[10px] text-gray-500">Patient Cohort</p>
-                    <p className="text-lg font-bold text-white">60K+</p>
-                    <p className="text-[10px] text-gray-500">patients</p>
-                  </div>
-                  <div className="p-3 bg-[#1e2030] rounded-lg">
-                    <p className="text-[10px] text-gray-500">Mortality Reduction</p>
-                    <p className="text-lg font-bold text-[#00B894]">41%</p>
-                    <p className="text-[10px] text-gray-500">vs. standard</p>
-                  </div>
-                  <div className="p-3 bg-[#1e2030] rounded-lg">
-                    <p className="text-[10px] text-gray-500">LOS Reduction</p>
-                    <p className="text-lg font-bold text-blue-400">18%</p>
-                    <p className="text-[10px] text-gray-500">ICU days</p>
+                {/* Input */}
+                <div className="p-4 border-t border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={agentInput}
+                      onChange={(e) => setAgentInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && askAgent(agentInput)}
+                      placeholder="Ask about fluid management, vasopressors, prognosis..."
+                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#00B894] focus:ring-1 focus:ring-[#00B894]/20"
+                    />
+                    <button
+                      onClick={() => askAgent(agentInput)}
+                      disabled={agentThinking}
+                      className="px-4 py-2.5 bg-[#00B894] text-white rounded-lg text-sm font-semibold hover:bg-[#00a383] transition-colors disabled:opacity-50"
+                    >
+                      Ask
+                    </button>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between text-[10px] text-gray-600 px-1 pb-2">
+          <div className="bg-white border-t border-gray-200 px-6 py-3 flex items-center justify-between text-xs text-gray-400 shrink-0">
             <span>
-              Clinicians should exercise their own clinical judgement. AI assists, human decides.
+              Clinicians should exercise their own clinical judgement. StriveMAP assists, human decides.
             </span>
             <span className="font-mono">
-              StriveMAP &copy; 2026 STRIVE Health — Trained on {patient.similarCount} similar
-              decisions
+              StriveMAP v2.4.1 &copy; 2026 STRIVE Health — {patient.similarCount} similar decisions analysed
             </span>
           </div>
         </main>
