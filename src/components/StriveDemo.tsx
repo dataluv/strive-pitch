@@ -875,188 +875,59 @@ function TreatmentSimulatorTab({ patient }: { patient: Patient }) {
   );
 }
 
-/* ============================================================
-   ROI TAB
-   ============================================================ */
-
-function ROITab() {
-  const [beds, setBeds] = useState(50);
-  const [occupancy, setOccupancy] = useState(85);
-  const [costPerDay, setCostPerDay] = useState(5500);
-
-  const roi = useMemo(() => {
-    const occupancyRate = occupancy / 100;
-    const patientDays = beds * occupancyRate * 365;
-    const avgLOS = 5.5;
-    const patientsPerYear = Math.round(patientDays / avgLOS);
-    const sepsisCases = Math.round(patientsPerYear * 0.3);
-    const livesSaved = Math.round(sepsisCases * 0.41);
-    const losReduction = 0.18;
-    const icuDaysSaved = Math.round(patientDays * losReduction);
-    const annualSavings = icuDaysSaved * costPerDay;
-    const striveCostPerBed = 15000;
-    const striveTotalCost = beds * striveCostPerBed;
-    const roiRatio = Math.round(annualSavings / striveTotalCost);
-    const costPerBedPerYear = striveCostPerBed;
-
-    return {
-      patientsPerYear,
-      sepsisCases,
-      livesSaved,
-      icuDaysSaved,
-      annualSavings,
-      roiRatio,
-      costPerBedPerYear,
-    };
-  }, [beds, occupancy, costPerDay]);
-
-  const formatMoney = (n: number) => {
-    if (n >= 1000000) return `$${(n / 1000000).toFixed(1)}M`;
-    if (n >= 1000) return `$${(n / 1000).toFixed(0)}K`;
-    return `$${n}`;
-  };
-
-  const tamData = [
-    { label: "Critical Care", value: 10, status: "delivered" as const },
-    { label: "Kidney Failure", value: 8, status: "building" as const },
-    { label: "Surgery", value: 6, status: "building" as const },
-    { label: "Antibiotics", value: 6, status: "building" as const },
-    { label: "Diabetes", value: 20, status: "future" as const },
-    { label: "Heart Failure", value: 12, status: "future" as const },
-    { label: "Oncology", value: 15, status: "future" as const },
-  ];
-  const tamMax = Math.max(...tamData.map(d => d.value));
-
-  return (
-    <>
-      <style>{`
-        @keyframes countUp {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-
-      {/* ROI Calculator */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-        <h2 className="text-base font-bold text-gray-900 mb-1">Hospital ROI Calculator</h2>
-        <p className="text-xs text-gray-500 mb-5">Adjust parameters to estimate STRIVE impact at your facility</p>
-
-        {/* Sliders */}
-        <div className="space-y-5 mb-8">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-gray-700">Number of ICU Beds</label>
-              <span className="text-sm font-bold font-mono text-[#00B894]">{beds}</span>
-            </div>
-            <input type="range" min={10} max={500} value={beds} onChange={e => setBeds(Number(e.target.value))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00B894]" />
-            <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>10</span><span>500</span></div>
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-gray-700">Average ICU Occupancy</label>
-              <span className="text-sm font-bold font-mono text-[#00B894]">{occupancy}%</span>
-            </div>
-            <input type="range" min={50} max={100} value={occupancy} onChange={e => setOccupancy(Number(e.target.value))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00B894]" />
-            <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>50%</span><span>100%</span></div>
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-gray-700">Average Cost per ICU Day</label>
-              <span className="text-sm font-bold font-mono text-[#00B894]">${costPerDay.toLocaleString()}</span>
-            </div>
-            <input type="range" min={3000} max={10000} step={100} value={costPerDay} onChange={e => setCostPerDay(Number(e.target.value))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00B894]" />
-            <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>$3,000</span><span>$10,000</span></div>
-          </div>
-        </div>
-
-        {/* Results */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          {[
-            { label: "Patients Treated / Year", value: roi.patientsPerYear.toLocaleString() },
-            { label: "Sepsis Cases / Year", value: roi.sepsisCases.toLocaleString() },
-            { label: "Lives Saved / Year", value: roi.livesSaved.toLocaleString(), highlight: true },
-          ].map(r => (
-            <div key={r.label} className={`rounded-xl p-4 text-center ${r.highlight ? "bg-[#00B894]/10 border border-[#00B894]/30" : "bg-gray-50"}`} style={{ animation: "countUp 0.4s ease-out" }}>
-              <p className="text-[10px] text-gray-400 uppercase font-semibold mb-1">{r.label}</p>
-              <p className={`text-2xl font-bold font-mono ${r.highlight ? "text-[#00B894]" : "text-gray-900"}`}>{r.value}</p>
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-4 gap-3 mb-6">
-          <div className="bg-gray-50 rounded-xl p-4 text-center" style={{ animation: "countUp 0.5s ease-out" }}>
-            <p className="text-[10px] text-gray-400 uppercase font-semibold mb-1">ICU Days Saved / Year</p>
-            <p className="text-xl font-bold font-mono text-gray-900">{roi.icuDaysSaved.toLocaleString()}</p>
-          </div>
-          <div className="bg-[#00B894]/10 border border-[#00B894]/30 rounded-xl p-4 text-center" style={{ animation: "countUp 0.6s ease-out" }}>
-            <p className="text-[10px] text-[#00B894] uppercase font-semibold mb-1">Annual Cost Savings</p>
-            <p className="text-xl font-bold font-mono text-[#00B894]">{formatMoney(roi.annualSavings)}</p>
-          </div>
-          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-center" style={{ animation: "countUp 0.7s ease-out" }}>
-            <p className="text-[10px] text-indigo-500 uppercase font-semibold mb-1">ROI</p>
-            <p className="text-xl font-bold font-mono text-indigo-600">{roi.roiRatio}:1</p>
-          </div>
-          <div className="bg-gray-50 rounded-xl p-4 text-center" style={{ animation: "countUp 0.8s ease-out" }}>
-            <p className="text-[10px] text-gray-400 uppercase font-semibold mb-1">Cost / Bed / Year</p>
-            <p className="text-xl font-bold font-mono text-gray-900">${roi.costPerBedPerYear.toLocaleString()}</p>
-          </div>
-        </div>
-
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-          <p className="text-[10px] text-gray-500">Based on peer-reviewed evidence (p&lt;0.0001, 95% CI) published at SCCM 2026. 41% mortality reduction, 18% LOS reduction from prospective clinical validation.</p>
-        </div>
-      </div>
-
-      {/* TAM Section */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-        <h2 className="text-base font-bold text-gray-900 mb-1">Total Addressable Market</h2>
-        <p className="text-xs text-gray-500 mb-5">AI-driven clinical decision support across chronic & acute conditions</p>
-
-        <div className="space-y-3 mb-6">
-          {tamData.map(d => (
-            <div key={d.label} className="flex items-center gap-3">
-              <span className="w-28 text-sm font-medium text-gray-700 text-right">{d.label}</span>
-              <div className="flex-1 bg-gray-100 rounded-full h-7 relative overflow-hidden">
-                <div
-                  className={`h-7 rounded-full flex items-center px-3 transition-all ${
-                    d.status === "delivered" ? "bg-[#00B894]" :
-                    d.status === "building" ? "bg-indigo-400" : "bg-gray-300"
-                  }`}
-                  style={{ width: `${(d.value / tamMax) * 100}%` }}
-                >
-                  <span className="text-xs font-bold text-white">${d.value}B</span>
-                </div>
-              </div>
-              <span className={`text-[10px] font-semibold uppercase w-16 ${
-                d.status === "delivered" ? "text-[#00B894]" :
-                d.status === "building" ? "text-indigo-500" : "text-gray-400"
-              }`}>
-                {d.status === "delivered" ? "Delivered" : d.status === "building" ? "Building" : "Future"}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5 text-center">
-          <p className="text-xs text-indigo-400 uppercase font-semibold mb-1">Total Addressable Market</p>
-          <p className="text-4xl font-bold font-mono text-indigo-600">$77B+</p>
-          <p className="text-xs text-indigo-400 mt-1">AI clinical decision support across all target verticals</p>
-        </div>
-      </div>
-    </>
-  );
-}
 
 /* ============================================================
    MAIN DEMO COMPONENT
    ============================================================ */
 
-type Tab = "overview" | "labs" | "antibiotics" | "icu-overview" | "simulator" | "roi";
+type Tab = "overview" | "labs" | "antibiotics" | "icu-overview" | "simulator";
+
+/* ============================================================
+   HOSPITAL NETWORK
+   ============================================================ */
+
+interface Hospital {
+  id: string;
+  name: string;
+  shortName: string;
+  location: string;
+  type: "trial" | "deployment" | "validation";
+  icuBeds: number;
+  description: string;
+  patientStart: number;
+  patientEnd: number;
+}
+
+const HOSPITALS: Hospital[] = [
+  { id: "all", name: "All Sites", shortName: "All", location: "Global Network", type: "trial", icuBeds: 240, description: "All connected hospital sites", patientStart: 0, patientEnd: 120 },
+  { id: "cleveland", name: "Cleveland Clinic", shortName: "Cleveland", location: "Cleveland, OH", type: "trial", icuBeds: 45, description: "Trial site, treating patients 2026. Critical care focus.", patientStart: 0, patientEnd: 45 },
+  { id: "harvard", name: "Harvard / Beth Israel Deaconess", shortName: "Harvard/BIDMC", location: "Boston, MA", type: "trial", icuBeds: 38, description: "Trial site, treating patients 2026. Academic medical center.", patientStart: 45, patientEnd: 83 },
+  { id: "uchealth", name: "UC Health", shortName: "UC Health", location: "Cincinnati, OH", type: "deployment", icuBeds: 62, description: "Deployment partner, scale integration. Multi-hospital system.", patientStart: 83, patientEnd: 100 },
+  { id: "columbia", name: "Columbia University Medical Center", shortName: "Columbia", location: "New York, NY", type: "validation", icuBeds: 32, description: "Validation studies conducted. Research-intensive.", patientStart: 100, patientEnd: 108 },
+  { id: "nhs", name: "NHS Royal Free Hospital", shortName: "Royal Free", location: "London, UK", type: "validation", icuBeds: 28, description: "Validation studies, London. National health service.", patientStart: 108, patientEnd: 115 },
+  { id: "charite", name: "Charite Berlin", shortName: "Charite", location: "Berlin, Germany", type: "validation", icuBeds: 35, description: "Validation studies, Germany. Europe's largest university hospital.", patientStart: 115, patientEnd: 120 },
+];
+
+function hospitalTypeDotColor(type: Hospital["type"]) {
+  switch (type) {
+    case "trial": return "bg-green-500";
+    case "deployment": return "bg-blue-500";
+    case "validation": return "bg-amber-500";
+  }
+}
+
+function hospitalTypeBadge(type: Hospital["type"]) {
+  switch (type) {
+    case "trial": return { bg: "bg-green-100 text-green-700", label: "Trial Site" };
+    case "deployment": return { bg: "bg-blue-100 text-blue-700", label: "Deployment" };
+    case "validation": return { bg: "bg-amber-100 text-amber-700", label: "Validation" };
+  }
+}
 
 export default function StriveDemo() {
-  const patients = useMemo(() => getAllPatients(), []);
+  const allPatients = useMemo(() => getAllPatients(), []);
+  const [selectedHospitalIdx, setSelectedHospitalIdx] = useState(0);
+  const [showHospitalList, setShowHospitalList] = useState(false);
   const [selectedPatientIdx, setSelectedPatientIdx] = useState(0);
   const [timeRange, setTimeRange] = useState<6 | 12 | 24>(24);
   const [showPatientList, setShowPatientList] = useState(false);
@@ -1066,6 +937,17 @@ export default function StriveDemo() {
   const [agentInput, setAgentInput] = useState("");
   const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const selectedHospital = HOSPITALS[selectedHospitalIdx];
+
+  const patients = useMemo(() => {
+    const slice = allPatients.slice(selectedHospital.patientStart, selectedHospital.patientEnd);
+    if (selectedHospital.id === "all") return slice;
+    return slice.map(p => ({
+      ...p,
+      unitBed: `${selectedHospital.shortName} — ${p.unitBed}`,
+    }));
+  }, [allPatients, selectedHospital]);
 
   // Modal state
   const [statsModal, setStatsModal] = useState<{
@@ -1097,6 +979,13 @@ export default function StriveDemo() {
       p.comorbidities.some(c => c.toLowerCase().includes(q))
     );
   }, [patients, searchQuery]);
+
+  // Reset to first patient when hospital changes
+  useEffect(() => {
+    setSelectedPatientIdx(0);
+    setSearchQuery("");
+    setShowPatientList(false);
+  }, [selectedHospitalIdx]);
 
   useEffect(() => {
     setAgentMessages([]);
@@ -1280,12 +1169,63 @@ export default function StriveDemo() {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Hospital selector */}
+          <div className="relative">
+            <button
+              onClick={() => { setShowHospitalList(!showHospitalList); setShowPatientList(false); }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-semibold transition-colors"
+            >
+              <span className={`w-2 h-2 rounded-full ${hospitalTypeDotColor(selectedHospital.type)}`} />
+              <span className="text-gray-900">{selectedHospital.shortName}</span>
+              {selectedHospital.id !== "all" && <span className="text-gray-400 text-xs">{selectedHospital.icuBeds} beds</span>}
+              <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {showHospitalList && (
+              <div className="absolute right-0 top-10 w-[380px] bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
+                <div className="p-3 border-b border-gray-100 bg-gray-50">
+                  <p className="text-xs font-semibold text-gray-500">SELECT HOSPITAL / SITE</p>
+                </div>
+                <div className="max-h-[60vh] overflow-y-auto">
+                  {HOSPITALS.map((h, i) => {
+                    const badge = hospitalTypeBadge(h.type);
+                    const isAll = h.id === "all";
+                    return (
+                      <button
+                        key={h.id}
+                        onClick={() => { setSelectedHospitalIdx(i); setShowHospitalList(false); }}
+                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0 ${i === selectedHospitalIdx ? "bg-[#00B894]/5" : ""}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <span className={`w-2.5 h-2.5 rounded-full ${hospitalTypeDotColor(h.type)}`} />
+                            <div>
+                              <span className="font-semibold text-sm text-gray-900">{isAll ? "All Sites" : h.name}</span>
+                              <p className="text-xs text-gray-400">{h.location}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {!isAll && <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge.bg}`}>{badge.label}</span>}
+                            <span className="text-xs text-gray-500 font-mono">{h.icuBeds} beds</span>
+                          </div>
+                        </div>
+                        {!isAll && <p className="text-[11px] text-gray-400 mt-1 ml-5">{h.description}</p>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           <span className="text-sm text-gray-500">
             <span className="font-mono font-bold text-gray-900">{patient.name}</span>
             <span className="text-gray-400 ml-1">#{patient.id}</span>
           </span>
           <button
-            onClick={() => setShowPatientList(!showPatientList)}
+            onClick={() => { setShowPatientList(!showPatientList); setShowHospitalList(false); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00B894] text-white rounded-lg text-sm font-semibold hover:bg-[#00a383] transition-colors"
           >
             <span className="w-2 h-2 rounded-full bg-white/40 animate-pulse" />
@@ -1514,7 +1454,6 @@ export default function StriveDemo() {
                 ["antibiotics", "Antibiotic Regimen"],
                 ["icu-overview", "ICU Overview"],
                 ["simulator", "Treatment Simulator"],
-                ["roi", "ROI"],
               ] as [Tab, string][]
             ).map(([key, label]) => (
               <button
@@ -1832,8 +1771,6 @@ export default function StriveDemo() {
             {/* ═══════ TREATMENT SIMULATOR TAB ═══════ */}
             {activeTab === "simulator" && <TreatmentSimulatorTab patient={patient} />}
 
-            {/* ═══════ ROI TAB ═══════ */}
-            {activeTab === "roi" && <ROITab />}
 
           </div>
 

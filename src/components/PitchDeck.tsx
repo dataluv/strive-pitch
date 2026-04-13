@@ -18,10 +18,156 @@ function Slide({ children, bg = "bg-white" }: SlideProps) {
 
 /* ============================================================ */
 
+function ROISlide() {
+  const [beds, setBeds] = useState(50);
+  const [occupancy, setOccupancy] = useState(85);
+  const [costPerDay, setCostPerDay] = useState(5500);
+
+  const occupancyRate = occupancy / 100;
+  const patientDays = beds * occupancyRate * 365;
+  const avgLOS = 5.5;
+  const patientsPerYear = Math.round(patientDays / avgLOS);
+  const sepsisCases = Math.round(patientsPerYear * 0.3);
+  const livesSaved = Math.round(sepsisCases * 0.41);
+  const losReduction = 0.18;
+  const icuDaysSaved = Math.round(patientDays * losReduction);
+  const annualSavings = icuDaysSaved * costPerDay;
+  const striveCostPerBed = 15000;
+  const striveTotalCost = beds * striveCostPerBed;
+  const roiRatio = Math.round(annualSavings / striveTotalCost);
+
+  const formatMoney = (n: number) => {
+    if (n >= 1000000) return `$${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000) return `$${(n / 1000).toFixed(0)}K`;
+    return `$${n}`;
+  };
+
+  const tamData = [
+    { label: "Critical Care", value: 10, status: "delivered" as const },
+    { label: "Kidney Failure", value: 8, status: "building" as const },
+    { label: "Surgery", value: 6, status: "building" as const },
+    { label: "Antibiotics", value: 6, status: "building" as const },
+    { label: "Diabetes", value: 20, status: "future" as const },
+    { label: "Heart Failure", value: 12, status: "future" as const },
+    { label: "Oncology", value: 15, status: "future" as const },
+  ];
+  const tamMax = Math.max(...tamData.map(d => d.value));
+
+  return (
+    <Slide>
+      <div>
+        <p className="text-[#00B894] font-mono text-sm uppercase tracking-wider mb-4">
+          Hospital Economics
+        </p>
+        <h2 className="text-4xl font-bold text-[#1a1f36] mb-8">
+          ROI Calculator &amp; Market Sizing
+        </h2>
+
+        <div className="grid grid-cols-2 gap-8">
+          {/* Left: Calculator */}
+          <div>
+            <h3 className="text-lg font-bold text-[#1a1f36] mb-4">Estimate impact at your facility</h3>
+            <div className="space-y-5 mb-6">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700">Number of ICU Beds</label>
+                  <span className="text-sm font-bold font-mono text-[#00B894]">{beds}</span>
+                </div>
+                <input type="range" min={10} max={500} value={beds} onChange={e => setBeds(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00B894]" />
+                <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>10</span><span>500</span></div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700">Average ICU Occupancy</label>
+                  <span className="text-sm font-bold font-mono text-[#00B894]">{occupancy}%</span>
+                </div>
+                <input type="range" min={50} max={100} value={occupancy} onChange={e => setOccupancy(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00B894]" />
+                <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>50%</span><span>100%</span></div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700">Average Cost per ICU Day</label>
+                  <span className="text-sm font-bold font-mono text-[#00B894]">${costPerDay.toLocaleString()}</span>
+                </div>
+                <input type="range" min={3000} max={10000} step={100} value={costPerDay} onChange={e => setCostPerDay(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00B894]" />
+                <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>$3,000</span><span>$10,000</span></div>
+              </div>
+            </div>
+
+            {/* Results */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-[#00B894]/10 border border-[#00B894]/30 rounded-xl p-3 text-center">
+                <p className="text-[10px] text-[#00B894] uppercase font-semibold mb-1">Lives Saved / Year</p>
+                <p className="text-2xl font-bold font-mono text-[#00B894]">{livesSaved.toLocaleString()}</p>
+              </div>
+              <div className="bg-[#00B894]/10 border border-[#00B894]/30 rounded-xl p-3 text-center">
+                <p className="text-[10px] text-[#00B894] uppercase font-semibold mb-1">Annual Cost Savings</p>
+                <p className="text-2xl font-bold font-mono text-[#00B894]">{formatMoney(annualSavings)}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <p className="text-[10px] text-gray-400 uppercase font-semibold mb-1">ICU Days Saved</p>
+                <p className="text-lg font-bold font-mono text-gray-900">{icuDaysSaved.toLocaleString()}</p>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-center">
+                <p className="text-[10px] text-indigo-500 uppercase font-semibold mb-1">ROI</p>
+                <p className="text-lg font-bold font-mono text-indigo-600">{roiRatio}:1</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <p className="text-[10px] text-gray-400 uppercase font-semibold mb-1">Sepsis Cases / Yr</p>
+                <p className="text-lg font-bold font-mono text-gray-900">{sepsisCases.toLocaleString()}</p>
+              </div>
+            </div>
+            <p className="text-[10px] text-gray-400">Based on peer-reviewed evidence: 41% mortality reduction, 18% LOS reduction (p&lt;0.0001, 95% CI).</p>
+          </div>
+
+          {/* Right: TAM */}
+          <div>
+            <h3 className="text-lg font-bold text-[#1a1f36] mb-4">Total Addressable Market</h3>
+            <div className="space-y-3 mb-6">
+              {tamData.map(d => (
+                <div key={d.label} className="flex items-center gap-3">
+                  <span className="w-24 text-xs font-medium text-gray-700 text-right">{d.label}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-6 relative overflow-hidden">
+                    <div
+                      className={`h-6 rounded-full flex items-center px-2.5 transition-all ${
+                        d.status === "delivered" ? "bg-[#00B894]" :
+                        d.status === "building" ? "bg-indigo-400" : "bg-gray-300"
+                      }`}
+                      style={{ width: `${(d.value / tamMax) * 100}%` }}
+                    >
+                      <span className="text-[11px] font-bold text-white">${d.value}B</span>
+                    </div>
+                  </div>
+                  <span className={`text-[9px] font-semibold uppercase w-14 ${
+                    d.status === "delivered" ? "text-[#00B894]" :
+                    d.status === "building" ? "text-indigo-500" : "text-gray-400"
+                  }`}>
+                    {d.status === "delivered" ? "Delivered" : d.status === "building" ? "Building" : "Future"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5 text-center">
+              <p className="text-xs text-indigo-400 uppercase font-semibold mb-1">Total Addressable Market</p>
+              <p className="text-4xl font-bold font-mono text-indigo-600">$77B+</p>
+              <p className="text-xs text-indigo-400 mt-1">AI clinical decision support across all target verticals</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Slide>
+  );
+}
+
 export default function PitchDeck({ onShowDemo }: { onShowDemo: () => void }) {
   const [slide, setSlide] = useState(0);
 
-  const TOTAL_SLIDES = 12;
+  const TOTAL_SLIDES = 13;
 
   const next = useCallback(() => setSlide((s) => Math.min(s + 1, TOTAL_SLIDES - 1)), []);
   const prev = useCallback(() => setSlide((s) => Math.max(s - 1, 0)), []);
@@ -434,8 +580,11 @@ export default function PitchDeck({ onShowDemo }: { onShowDemo: () => void }) {
       </div>
     </Slide>,
 
-    /* 10 — TEAM */
-    <Slide key={10}>
+    /* 10 — ROI CALCULATOR & TAM */
+    <ROISlide key={10} />,
+
+    /* 11 — TEAM */
+    <Slide key={11}>
       <div>
         <p className="text-[#00B894] font-mono text-sm uppercase tracking-wider mb-4">
           Team
@@ -480,8 +629,8 @@ export default function PitchDeck({ onShowDemo }: { onShowDemo: () => void }) {
       </div>
     </Slide>,
 
-    /* 11 — INVESTMENT + CLOSE */
-    <Slide key={11} bg="bg-[#1a1f36]">
+    /* 12 — INVESTMENT + CLOSE */
+    <Slide key={12} bg="bg-[#1a1f36]">
       <div className="text-center">
         <p className="text-[#00B894] font-mono text-sm uppercase tracking-wider mb-4">
           Investment
