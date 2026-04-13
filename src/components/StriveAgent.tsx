@@ -835,6 +835,7 @@ export default function StriveAgent() {
           </div>
           <span className="font-bold text-base tracking-tight text-gray-900">Strive</span>
           <nav className="flex items-center gap-1 ml-4">
+            <a href="/cases" className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">Cases</a>
             <a href="/platform" className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">Platform</a>
             <a href="/agent" className="px-3 py-1.5 text-sm font-semibold text-[#00B894] bg-[#00B894]/10 rounded-lg">Agent</a>
           </nav>

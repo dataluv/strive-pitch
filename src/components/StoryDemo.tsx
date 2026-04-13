@@ -1412,6 +1412,9 @@ export default function StoryDemo() {
           <div style={{ flex: 1 }} />
 
           {/* Nav links */}
+          <Link href="/cases" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", fontWeight: 500 }}>
+            Case Studies
+          </Link>
           <Link href="/platform" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", fontWeight: 500 }}>
             Platform
           </Link>
